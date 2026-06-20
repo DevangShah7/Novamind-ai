@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose ps *)",
+      "Bash(docker *)",
+      "Bash(net start *)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}
