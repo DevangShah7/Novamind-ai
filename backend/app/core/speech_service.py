@@ -103,35 +103,37 @@ class WhisperSpeechService(SpeechService):
         # Generate a simple beep as placeholder audio
         # In reality, this would be actual speech audio
         try:
-            # Create a simple audio signal (beep)
+            # Create a simple WAV file with silence (no numpy required)
             sample_rate = 22050
             duration = 0.5  # seconds
-            frequency = 440  # Hz (A4 note)
-
-            import numpy as np
-            t = np.linspace(0, duration, int(sample_rate * duration), False)
-            audio = np.sin(frequency * 2 * np.pi * t) * 0.3
-
-            # Convert to 16-bit PCM
-            audio = (audio * 32767).astype(np.int16)
+            num_samples = int(sample_rate * duration)
+            num_channels = 1  # mono
+            bits_per_sample = 16
+            bytes_per_sample = bits_per_sample // 8
+            byte_rate = sample_rate * num_channels * bytes_per_sample
+            block_align = num_channels * bytes_per_sample
+            data_size = num_samples * num_channels * bytes_per_sample
 
             # Create WAV file in memory
             buffer = io.BytesIO()
-            # Write WAV header
+            # Write RIFF header
             buffer.write(b'RIFF')
-            buffer.write((36 + len(audio)*2).to_bytes(4, 'little'))  # File size - 8
+            buffer.write((36 + data_size).to_bytes(4, 'little'))  # File size - 8
             buffer.write(b'WAVE')
+            # Write fmt subchunk
             buffer.write(b'fmt ')
-            buffer.write((16).to_bytes(4, 'little'))  # Subchunk1Size
-            buffer.write((1).to_bytes(2, 'little'))   # AudioFormat (PCM)
-            buffer.write((1).to_bytes(2, 'little'))   # NumChannels (mono)
+            buffer.write((16).to_bytes(4, 'little'))  # Subchunk1Size = 16 for PCM
+            buffer.write((1).to_bytes(2, 'little'))   # AudioFormat = 1 for PCM
+            buffer.write((num_channels).to_bytes(2, 'little'))  # NumChannels
             buffer.write(sample_rate.to_bytes(4, 'little'))  # SampleRate
-            buffer.write((sample_rate * 2).to_bytes(4, 'little'))  # ByteRate
-            buffer.write((2).to_bytes(2, 'little'))   # BlockAlign
-            buffer.write((16).to_bytes(2, 'little'))  # BitsPerSample
+            buffer.write(byte_rate.to_bytes(4, 'little'))  # ByteRate
+            buffer.write((block_align).to_bytes(2, 'little'))  # BlockAlign
+            buffer.write((bits_per_sample).to_bytes(2, 'little'))  # BitsPerSample
+            # Write data subchunk
             buffer.write(b'data')
-            buffer.write((len(audio)*2).to_bytes(4, 'little'))  # Subchunk2Size
-            buffer.write(audio.tobytes())
+            buffer.write(data_size.to_bytes(4, 'little'))  # Subchunk2Size
+            # Write audio data (silence - all zeros)
+            buffer.write(b'\x00' * data_size)
 
             return buffer.getvalue()
         except Exception as e:

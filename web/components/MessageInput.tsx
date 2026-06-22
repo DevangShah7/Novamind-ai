@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Upload, Copy } from 'lucide-react';
+import { Upload, Copy, Mic, Speaker } from 'lucide-react';
+import { speechToText } from '../../lib/voice';
 
 interface MessageInputProps {
   onSend: (content: string) => Promise<void>;
@@ -17,6 +18,12 @@ export default function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [charCount, setCharCount] = useState(0);
+  const [isListening, setIsListening] = useState(false);
+  const [speechRecognition, setSpeechRecognition] = useState<
+    | SpeechRecognition
+    | webkitSpeechRecognition
+    | null
+  >(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +71,49 @@ export default function MessageInput({
     }
     setCharCount(content.length);
   }, [content]);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if ('SpeechRecognition' in window) {
+      setSpeechRecognition(new SpeechRecognition());
+    } else if ('webkitSpeechRecognition' in window) {
+      setSpeechRecognition(new webkitSpeechRecognition());
+    }
+
+    if (speechRecognition) {
+      speechRecognition.continuous = false;
+      speechRecognition.interimResults = false;
+      speechRecognition.lang = 'en-US';
+
+      speechRecognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setContent(transcript);
+        setIsListening(false);
+      };
+
+      speechRecognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      speechRecognition.onend = () => {
+        setIsListening(false);
+      };
+    }
+  }, [speechRecognition]);
+
+  // Handle speech to text button click
+  const handleSpeechToText = async () => {
+    if (!speechRecognition || isListening) return;
+
+    try {
+      setIsListening(true);
+      speechRecognition.start();
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      setIsListening(false);
+    }
+  };
 
   return (
     <div className={`border-t border-gray-200 bg-white ${isFocused ? 'border-indigo-500' : ''} transition-border`}
@@ -130,6 +180,22 @@ export default function MessageInput({
               className="hidden"
               disabled={loading}
             />
+            <button
+              type="button"
+              onClick={handleSpeechToText}
+              disabled={loading || !('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)}
+              className={`flex items-center justify-center w-10 h-10 rounded-lg
+                        ${loading ? 'opacity-50' : 'hover:bg-gray-100'}
+                        transition-colors
+                        ${isListening ? 'bg-indigo-500' : ''}`}
+              title="Speech to text"
+            >
+              {isListening ? (
+                <Mic className="h-4 w-4 text-white animate-pulse" />
+              ) : (
+                <Mic className="h-4 w-4 text-indigo-500" />
+              )}
+            </button>
             <button
               type="submit"
               disabled={loading || (!content.trim() && files.length === 0)}

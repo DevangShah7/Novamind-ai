@@ -30,7 +30,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           id: payload.user_id || payload.sub ?
             (typeof payload.sub === 'string' && payload.sub.startsWith('google_') ?
              hashString(payload.sub) :
-             parseInt(payload.sub)) || 1,
+             parseInt(payload.sub)) : 1,
           email: payload.email || '',
           is_active: payload.is_active !== false,
           // Add other fields as needed from token
@@ -57,11 +57,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return Math.abs(hash);
   };
 
-  return (
-    <AuthContext.Provider value={{ user, loading }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return React.createElement(AuthContext.Provider, { value: { user: user, loading: loading } }, children);
 };
 
 export const useAuth = () => useContext(AuthContext);

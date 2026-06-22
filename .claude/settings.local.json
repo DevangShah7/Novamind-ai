@@ -5,7 +5,20 @@
       "Bash(docker *)",
       "Bash(net start *)",
       "Bash(git init *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git config *)",
+      "Bash(python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(npm run *)",
+      "Bash(taskkill *)",
+      "Bash(pip install *)",
+      "Bash(python -m pip install -r requirements.txt)",
+      "Bash(npm install *)",
+      "Bash(pip3 install *)",
+      "Bash(python *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "claude-flow"
+  ]
 }

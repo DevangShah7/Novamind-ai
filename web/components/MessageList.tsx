@@ -1,6 +1,7 @@
 import { Message } from '../../types';
 import { formatDistanceToNow } from 'date-fns';
-import { Copy } from 'lucide-react';
+import { Copy, Speaker } from 'lucide-react';
+import { textToSpeech } from '../../lib/voice';
 
 interface MessageListProps {
   messages: Message[];
@@ -76,6 +77,29 @@ export default function MessageList({ messages }: MessageListProps) {
                     <span>{msg.meta_data.tokens} tokens</span>
                   )}
                   <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const audioBlob = await textToSpeech(msg.content);
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        const audio = new Audio(audioUrl);
+                        audio.play();
+
+                        // Clean up object URL after playback
+                        audio.onend = () => {
+                          URL.revokeObjectURL(audioUrl);
+                        };
+                      } catch (error) {
+                        console.error('Error playing text-to-speech:', error);
+                        alert('Failed to play audio');
+                      }
+                    }}
+                    className="p-1 rounded hover:bg-gray-200 transition-colors"
+                    title="Play message"
+                  >
+                    <Speaker className="h-4 w-4 text-gray-500 hover:text-indigo-500" />
+                  </button>
+                  <button
                     onClick={(e) => {
                       e.stopPropagation();
                       navigator.clipboard.writeText(msg.content).then(() => {
@@ -124,6 +148,29 @@ export default function MessageList({ messages }: MessageListProps) {
                   )}
                 </div>
                 <div className="mt-2 flex items-center space-x-3 text-xs text-gray-400">
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const audioBlob = await textToSpeech(msg.content);
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        const audio = new Audio(audioUrl);
+                        audio.play();
+
+                        // Clean up object URL after playback
+                        audio.onend = () => {
+                          URL.revokeObjectURL(audioUrl);
+                        };
+                      } catch (error) {
+                        console.error('Error playing text-to-speech:', error);
+                        alert('Failed to play audio');
+                      }
+                    }}
+                    className="p-1 rounded hover:bg-gray-200 transition-colors"
+                    title="Play message"
+                  >
+                    <Speaker className="h-4 w-4 text-gray-500 hover:text-indigo-500" />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

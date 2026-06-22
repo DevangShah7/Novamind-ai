@@ -1,4 +1,9 @@
-from pydantic import BaseSettings
+try:
+    # Try to import from pydantic-settings (newer versions)
+    from pydantic_settings import BaseSettings
+except ImportError:
+    # Fall back to pydantic (older versions)
+    from pydantic import BaseSettings
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "NovaMind AI"
@@ -6,7 +11,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "your-secret-key-here"  # Change in production
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
-    DATABASE_URL: str = "postgresql://user:password@postgres/db"
+    DATABASE_URL: str = "sqlite:///./novamind.db"
     REDIS_URL: str = "redis://redis:6379"
     CHROMA_HOST: str = "chroma"
     CHROMA_PORT: int = 8000
