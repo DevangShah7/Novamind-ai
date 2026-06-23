@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, Copy, Mic, Speaker } from 'lucide-react';
-import { speechToText } from '../../lib/voice';
+import { speechToText } from '../lib/voice';
 
 interface MessageInputProps {
   onSend: (content: string) => Promise<void>;
@@ -19,11 +19,7 @@ export default function MessageInput({
   const [isFocused, setIsFocused] = useState(false);
   const [charCount, setCharCount] = useState(0);
   const [isListening, setIsListening] = useState(false);
-  const [speechRecognition, setSpeechRecognition] = useState<
-    | SpeechRecognition
-    | webkitSpeechRecognition
-    | null
-  >(null);
+  const [speechRecognition, setSpeechRecognition] = useState<any>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,9 +71,9 @@ export default function MessageInput({
   // Initialize speech recognition
   useEffect(() => {
     if ('SpeechRecognition' in window) {
-      setSpeechRecognition(new SpeechRecognition());
+      setSpeechRecognition(new (window as any).SpeechRecognition());
     } else if ('webkitSpeechRecognition' in window) {
-      setSpeechRecognition(new webkitSpeechRecognition());
+      setSpeechRecognition(new (window as any).webkitSpeechRecognition());
     }
 
     if (speechRecognition) {
