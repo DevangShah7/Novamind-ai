@@ -31,6 +31,22 @@ export default function ChatPage() {
     loadMessages();
   }, [chatId]);
 
+  // Mock backend fires 'mock:message-added' when an async assistant
+  // reply lands. Real backends do this over WebSockets / SSE in the future.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ chatId: string }>).detail;
+      if (detail?.chatId === chatId) {
+        loadMessages();
+        setIsTyping(false);
+      }
+    };
+    window.addEventListener('mock:message-added', handler);
+    return () => window.removeEventListener('mock:message-added', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
+
   const loadChat = async () => {
     // In a real app, we'd fetch chat details
     // For now, we'll create a placeholder

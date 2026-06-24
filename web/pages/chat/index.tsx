@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { getChats, createChat } from '../../lib/api';
+import { getChats, createChat, isMockMode } from '../../lib/api';
 import ChatList from '../../components/ChatList';
 import { useAuth } from '../../lib/auth';
 
@@ -56,6 +56,11 @@ export default function ChatListPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="py-8">
+          {isMockMode && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <strong>Demo mode.</strong> Running with an in-browser mock backend (localStorage). Data stays on this device. Try the default admin: <code>admin@novamind.ai</code> / <code>admin123</code>.
+            </div>
+          )}
           <div className="mb-6 flex items-center justify-between">
             <h1 className="text-2xl font-bold text-gray-900">Your Chats</h1>
             <form onSubmit={handleCreateChat} className="flex space-x-2">
