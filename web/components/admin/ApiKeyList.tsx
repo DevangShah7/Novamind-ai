@@ -110,9 +110,6 @@ export default function ApiKeyList({ apiKeys, onRefresh }: ApiKeyListProps) {
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowCreateModal(false)} />
         <div className="bg-white rounded-lg shadow-xl w-96 max-w-xl mx-4 p-6">
           <div className="flex justify-between items-start mb-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              Create New API Key
-            </div>
             <button
               className="text-gray-400 hover:text-gray-500"
               onClick={() => setShowCreateModal(false)}
@@ -137,7 +134,7 @@ export default function ApiKeyList({ apiKeys, onRefresh }: ApiKeyListProps) {
                 Description (optional)
               </label>
               <textarea
-                rows="3"
+                rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 placeholder="Enter description"
               />
@@ -179,7 +176,7 @@ export default function ApiKeyList({ apiKeys, onRefresh }: ApiKeyListProps) {
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-lg font-medium text-gray-900">
               Validate API Key
-            </div>
+            </h3>
             <button
               className="text-gray-400 hover:text-gray-500"
               onClick={() => {
@@ -210,7 +207,7 @@ export default function ApiKeyList({ apiKeys, onRefresh }: ApiKeyListProps) {
                       <span className="w-32 text-sm font-medium text-gray-600">
                         Status:
                       </span>
-                      <span className={validationResult.valid ? 'text-green-500' : 'text-red-500'} className="text-sm font-medium">
+                      <span className={`${validationResult.valid ? 'text-green-500' : 'text-red-500'} text-sm font-medium`}>
                         {validationResult.valid ? 'Valid' : 'Invalid'}
                       </span>
                     </div>

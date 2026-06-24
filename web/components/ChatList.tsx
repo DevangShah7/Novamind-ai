@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Chat } from '../../types';
+import { Chat } from '../types';
 
 interface ChatListProps {
   chats: Chat[];

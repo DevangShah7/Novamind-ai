@@ -1,7 +1,7 @@
-import { Message } from '../../types';
+import { Message } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 import { Copy, Speaker } from 'lucide-react';
-import { textToSpeech } from '../../lib/voice';
+import { textToSpeech } from '../lib/voice';
 
 interface MessageListProps {
   messages: Message[];
@@ -86,7 +86,7 @@ export default function MessageList({ messages }: MessageListProps) {
                         audio.play();
 
                         // Clean up object URL after playback
-                        audio.onend = () => {
+                        audio.onended = () => {
                           URL.revokeObjectURL(audioUrl);
                         };
                       } catch (error) {
@@ -158,7 +158,7 @@ export default function MessageList({ messages }: MessageListProps) {
                         audio.play();
 
                         // Clean up object URL after playback
-                        audio.onend = () => {
+                        audio.onended = () => {
                           URL.revokeObjectURL(audioUrl);
                         };
                       } catch (error) {
