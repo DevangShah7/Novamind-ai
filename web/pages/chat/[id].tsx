@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { getMessages, sendMessage } from '../../../lib/api';
-import MessageList from '../../../components/MessageList';
-import MessageInput from '../../../components/MessageInput';
-import { useAuth } from '../../../lib/auth';
-import { Chat } from '../../../types';
+import { getMessages, sendMessage } from '../../lib/api';
+import MessageList from '../../components/MessageList';
+import MessageInput from '../../components/MessageInput';
+import { useAuth } from '../../lib/auth';
+import { Chat, Message } from '../../types';
 
 export default function ChatPage() {
   const router = useRouter();
-  const { chatId } = router.query;
+  const rawChatId = router.query.chatId;
+  const chatId = Array.isArray(rawChatId) ? rawChatId[0] : rawChatId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export default function ChatPage() {
     setChat({
       id: parseInt(chatId),
       title: `Chat ${chatId}`,
+      user_id: typeof user?.id === 'number' ? user.id : 1,
       chat_type: 'private',
       status: 'active',
       settings: {},

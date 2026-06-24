@@ -7,7 +7,12 @@ import ApiKeyList from '../../components/admin/ApiKeyList';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
-  const [stats, setStats] = useState({});
+  const [stats, setStats] = useState<{
+    total_users?: number;
+    admin_users?: number;
+    active_users?: number;
+    api_keys?: number;
+  }>({});
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

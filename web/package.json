@@ -11,23 +11,23 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "date-fns": "^2.29.3",
+    "lucide-react": "^0.263.1",
     "next": "12.1.6",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "date-fns": "^2.29.3",
-    "lucide-react": "^0.263.1"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^5.0.0",
+    "@testing-library/react": "^13.0.0",
     "@types/node": "17.0.35",
     "@types/react": "18.0.9",
     "@types/react-dom": "18.0.4",
     "autoprefixer": "^10.4.7",
+    "jest": "^27.0.0",
+    "jest-environment-jsdom": "^27.0.0",
     "postcss": "^8.4.14",
     "tailwindcss": "^3.0.24",
-    "typescript": "4.6.4",
-    "@testing-library/react": "^13.0.0",
-    "@testing-library/jest-dom": "^5.0.0",
-    "jest": "^27.0.0",
-    "jest-environment-jsdom": "^27.0.0"
+    "typescript": "^6.0.3"
   }
 }

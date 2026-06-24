@@ -3,7 +3,7 @@
  * Provides speech-to-text and text-to-speech capabilities
  */
 
-import { api } from './api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 /**
  * Speech-to-text conversion
@@ -20,13 +20,19 @@ export const speechToText = async (
     formData.append('audio_file', audioFile);
     formData.append('language', language);
 
-    const response = await api.post('/voice/speech-to-text', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(`${API_URL}/voice/speech-to-text`, {
+      method: 'POST',
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
-    return response.data.data;
+    if (!response.ok) {
+      throw new Error(`Speech-to-text request failed: ${response.status}`);
+    }
+
+    const json = await response.json();
+    return json.data;
   } catch (error) {
     console.error('Speech-to-text error:', error);
     throw new Error('Failed to convert speech to text');
@@ -54,11 +60,18 @@ export const textToSpeech = async (
     formData.append('speed', speed.toString());
     formData.append('pitch', pitch.toString());
 
-    const response = await api.post('/voice/text-to-speech', formData, {
-      responseType: 'blob',
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(`${API_URL}/voice/text-to-speech`, {
+      method: 'POST',
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
-    return new Blob([response.data], { type: 'audio/wav' });
+    if (!response.ok) {
+      throw new Error(`Text-to-speech request failed: ${response.status}`);
+    }
+
+    return response.blob();
   } catch (error) {
     console.error('Text-to-speech error:', error);
     throw new Error('Failed to convert text to speech');
