@@ -40,3 +40,11 @@ coverage/
 .env.backup
 .env.example
 .env.sample
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
