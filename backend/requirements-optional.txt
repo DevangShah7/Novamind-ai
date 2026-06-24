@@ -1,0 +1,6 @@
+# Optional dependencies — install these on full-stack deployments with Postgres + Redis + ChromaDB.
+# Listed separately so free-tier deployments (SQLite + in-memory cache) can skip them.
+#
+#   pip install -r requirements-optional.txt
+#
+chromadb==0.4.15

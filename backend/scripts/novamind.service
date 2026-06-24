@@ -1,0 +1,26 @@
+[Unit]
+Description=NovaMind AI Backend (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=novamind
+Group=novamind
+WorkingDirectory=/opt/novamind
+Environment="PATH=/opt/novamind/.venv/bin"
+EnvironmentFile=/opt/novamind/.env
+ExecStart=/opt/novamind/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/novamind/stdout.log
+StandardError=append:/var/log/novamind/stderr.log
+
+# Hardening (Oracle Cloud VM is publicly reachable; lock down the service).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/novamind /var/log/novamind
+
+[Install]
+WantedBy=multi-user.target
