@@ -6,6 +6,9 @@ import MessageInput from '../../components/MessageInput';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message } from '../../types';
 
+// Render at request time — chat pages depend on auth + dynamic :id.
+export const getServerSideProps = async () => ({ props: {} });
+
 export default function ChatPage() {
   const router = useRouter();
   const rawChatId = router.query.chatId;

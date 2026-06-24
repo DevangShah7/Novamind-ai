@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { register } from '../../lib/api';
+import { register } from '../lib/api';
 
 export default function Signup() {
   const [email, setEmail] = useState('');

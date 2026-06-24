@@ -4,6 +4,9 @@ import { getChats, createChat } from '../../lib/api';
 import ChatList from '../../components/ChatList';
 import { useAuth } from '../../lib/auth';
 
+// Render at request time so auth-protected chat list isn't statically prerendered.
+export const getServerSideProps = async () => ({ props: {} });
+
 export default function ChatListPage() {
   const [chats, setChats] = useState([]);
   const [title, setTitle] = useState('');

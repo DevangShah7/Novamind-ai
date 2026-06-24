@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { login } from '../../lib/api';
+import { login } from '../lib/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
