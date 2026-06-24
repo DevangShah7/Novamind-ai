@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1 import api_router
 from app.db.database import Base, engine
@@ -53,12 +54,28 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
+# CORS: allow Vercel frontend (and any preview deployments).
+# Comma-separated list, e.g. BACKEND_CORS_ORIGINS="https://web-ivory-eta-87.vercel.app,http://localhost:3000"
+_cors_origins_raw = os.environ.get("BACKEND_CORS_ORIGINS", "http://localhost:3000")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Initialize audit logger
 from app.core.audit_logging import init_audit_logger
 import os
-# Create logs directory if it doesn't exist
-os.makedirs("/app/logs", exist_ok=True)
-init_audit_logger("/app/logs/audit.log")
+# Logs directory: /app/logs in Docker, ./logs locally, $AUDIT_LOG_DIR if set
+_log_dir = os.environ.get("AUDIT_LOG_DIR") or (
+    "/app/logs" if os.path.isdir("/app") and os.access("/app", os.W_OK) else "./logs"
+)
+os.makedirs(_log_dir, exist_ok=True)
+init_audit_logger(os.path.join(_log_dir, "audit.log"))
 
 # Add rate limiting middleware
 from app.core.rate_limiting import RateLimitMiddleware
