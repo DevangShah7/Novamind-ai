@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Upload, Copy, Mic, Speaker } from 'lucide-react';
+import { Upload, Mic, Send, Paperclip, X, Loader2 } from 'lucide-react';
 import { speechToText } from '../lib/voice';
 
 interface MessageInputProps {
   onSend: (content: string) => Promise<void>;
-  onFileUpload?: (file: File) => Promise<string>; // Returns URL or placeholder
+  onFileUpload?: (file: File) => Promise<string>;
   loading?: boolean;
 }
 
@@ -17,15 +17,14 @@ export default function MessageInput({
   const [files, setFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [charCount, setCharCount] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [speechRecognition, setSpeechRecognition] = useState<any>(null);
 
+  const canSend = (content.trim().length > 0 || files.length > 0) && !loading;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() && files.length === 0) return;
-
-    // For now, just send text - file upload would need backend implementation
+    if (!canSend) return;
     if (content.trim()) {
       await onSend(content);
       setContent('');
@@ -34,12 +33,6 @@ export default function MessageInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Send on Ctrl+Enter or Meta+Enter (Cmd+Enter on Mac)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      handleSubmit(e as React.FormEvent);
-    }
-    // Send on Enter alone if not shift (for newline)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e as React.FormEvent);
@@ -50,7 +43,6 @@ export default function MessageInput({
     const selectedFiles = Array.from(e.target.files || []);
     if (selectedFiles.length > 0) {
       setFiles(prev => [...prev, ...selectedFiles]);
-      // Reset file input
       e.target.value = '';
     }
   };
@@ -59,155 +51,136 @@ export default function MessageInput({
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Auto-resize textarea and update character count
+  // Auto-resize textarea up to ~6 rows
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-    setCharCount(content.length);
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [content]);
 
   // Initialize speech recognition
   useEffect(() => {
-    if ('SpeechRecognition' in window) {
-      setSpeechRecognition(new (window as any).SpeechRecognition());
-    } else if ('webkitSpeechRecognition' in window) {
-      setSpeechRecognition(new (window as any).webkitSpeechRecognition());
+    let rec: any = null;
+    if (typeof window !== 'undefined') {
+      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SR) rec = new SR();
     }
-
-    if (speechRecognition) {
-      speechRecognition.continuous = false;
-      speechRecognition.interimResults = false;
-      speechRecognition.lang = 'en-US';
-
-      speechRecognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setContent(transcript);
+    if (rec) {
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+      rec.onresult = (event: any) => {
+        setContent(event.results[0][0].transcript);
         setIsListening(false);
       };
-
-      speechRecognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-
-      speechRecognition.onend = () => {
-        setIsListening(false);
-      };
+      rec.onerror = () => setIsListening(false);
+      rec.onend = () => setIsListening(false);
+      setSpeechRecognition(rec);
     }
-  }, [speechRecognition]);
+  }, []);
 
-  // Handle speech to text button click
   const handleSpeechToText = async () => {
     if (!speechRecognition || isListening) return;
-
     try {
       setIsListening(true);
       speechRecognition.start();
     } catch (error) {
-      console.error('Error starting speech recognition:', error);
+      console.error('Speech recognition error:', error);
       setIsListening(false);
     }
   };
 
   return (
-    <div className={`border-t border-gray-200 bg-white ${isFocused ? 'border-indigo-500' : ''} transition-border`}
-      onFocus={() => setIsFocused(true)}
-      onBlur={() => setIsFocused(false)}
+    <form
+      onSubmit={handleSubmit}
+      className={`relative rounded-2xl border bg-card shadow-sm transition-all ${
+        isFocused ? 'border-primary ring-2 ring-ring' : 'border-border'
+      }`}
     >
-      <div className="flex flex-col px-4 py-3">
-        {/* File attachments preview */}
-        {files.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {files.map((file, index) => (
-              <div key={index} className="flex items-center space-x-2 bg-gray-50 rounded px-3 py-1 text-sm">
-                <span className="text-indigo-500">📎</span>
-                <span className="truncate max-w-xs">{file.name}</span>
-                <button
-                  onClick={() => removeFile(index)}
-                  className="text-gray-400 hover:text-gray-600 p-1 rounded"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Character counter */}
-        <div className="mb-2 flex justify-between text-xs text-gray-500">
-          <span>{charCount}/1000</span>
-          <span>{files.length} file{files.length !== 1 ? 's' : ''} attached</span>
+      {/* File attachments */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-b border-border p-3">
+          {files.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-2 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs"
+            >
+              <Paperclip className="h-3 w-3 text-primary" />
+              <span className="max-w-[160px] truncate text-foreground">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => removeFile(index)}
+                aria-label="Remove file"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
         </div>
+      )}
 
-        {/* Textarea and controls */}
-        <div className="flex items-start">
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            className={`flex-1 min-w-0 border border-gray-300 rounded-xl px-4 py-3 text-base
-                      focus:outline-none focus:ring-2 focus:ring-indigo-500
-                      resize-none
-                      ${loading ? 'opacity-75' : ''}`}
-            rows={1}
-            disabled={loading}
-            style={{ minHeight: '48px' }}
-          />
-          <div className="ml-3 flex-shrink-0 flex items-center space-x-2">
-            <label
-              htmlFor="file-upload"
-              className={`flex items-center justify-center w-10 h-10 rounded-lg
-                        ${loading ? 'opacity-50' : 'hover:bg-gray-100'}
-                        transition-colors`}
-              onClick={() => !loading && document.getElementById('file-upload')?.click()}
-            >
-              <Upload className="h-4 w-4 text-indigo-500" />
-            </label>
-            <input
-              id="file-upload"
-              type="file"
-              multiple
-              accept="image/*,.pdf,.txt,.doc,.docx"
-              onChange={handleFileChange}
-              className="hidden"
-              disabled={loading}
-            />
-            <button
-              type="button"
-              onClick={handleSpeechToText}
-              disabled={loading || !('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)}
-              className={`flex items-center justify-center w-10 h-10 rounded-lg
-                        ${loading ? 'opacity-50' : 'hover:bg-gray-100'}
-                        transition-colors
-                        ${isListening ? 'bg-indigo-500' : ''}`}
-              title="Speech to text"
-            >
-              {isListening ? (
-                <Mic className="h-4 w-4 text-white animate-pulse" />
-              ) : (
-                <Mic className="h-4 w-4 text-indigo-500" />
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={loading || (!content.trim() && files.length === 0)}
-              className={`ml-2 rounded-xl border border-transparent px-4 py-2
-                        font-medium
-                        ${loading
-                          ? 'bg-gray-400 opacity-75'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700'}
-                        transition-all
-                        disabled:opacity-50`}
-            >
-              {loading ? 'Sending...' : 'Send'}
-            </button>
-          </div>
-        </div>
+      <div className="flex items-end gap-2 p-2.5">
+        {/* Attach file */}
+        <label
+          htmlFor="file-upload"
+          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Attach file"
+        >
+          <Upload className="h-4 w-4" />
+        </label>
+        <input
+          id="file-upload"
+          type="file"
+          multiple
+          accept="image/*,.pdf,.txt,.doc,.docx"
+          onChange={handleFileChange}
+          className="hidden"
+          disabled={loading}
+        />
+
+        {/* Textarea */}
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          placeholder="Message NovaMind…  (Shift+Enter for newline)"
+          className="flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0"
+          rows={1}
+          disabled={loading}
+          style={{ minHeight: '36px', maxHeight: '200px' }}
+        />
+
+        {/* Voice */}
+        <button
+          type="button"
+          onClick={handleSpeechToText}
+          disabled={loading || !speechRecognition}
+          aria-label={isListening ? 'Listening…' : 'Voice input'}
+          title={speechRecognition ? 'Voice input' : 'Voice not supported in this browser'}
+          className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors ${
+            isListening
+              ? 'bg-primary text-white animate-pulse'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          } disabled:opacity-40`}
+        >
+          <Mic className="h-4 w-4" />
+        </button>
+
+        {/* Send */}
+        <button
+          type="submit"
+          disabled={!canSend}
+          aria-label="Send message"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white shadow-sm transition-all hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
       </div>
-    </div>
+    </form>
   );
 }

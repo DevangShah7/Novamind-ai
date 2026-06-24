@@ -1,16 +1,29 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { login } from '../lib/api';
+import Link from 'next/link';
+import { LogIn, Sparkles, Mail, Lock, ArrowRight } from 'lucide-react';
+import { login, googleLogin, isMockMode } from '../lib/api';
+import AuthLayout from '../components/AuthLayout';
+import TextField from '../components/TextField';
+import GoogleButton from '../components/GoogleButton';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
+
+  const emailErr = email && !EMAIL_RE.test(email) ? 'Enter a valid email' : '';
+  const pwdErr = password && password.length < 6 ? 'At least 6 characters' : '';
+  const canSubmit = EMAIL_RE.test(email) && password.length >= 6 && !loading;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSubmit) return;
     setLoading(true);
     setError('');
     try {
@@ -18,91 +31,128 @@ export default function Login() {
       localStorage.setItem('token', data.access_token);
       router.push('/chat');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed');
+      // Mock backend throws plain `new Error('Invalid email or password')`
+      // — fall back to a generic message for anything we don't recognise.
+      setError(err?.message || 'Login failed');
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    // In a real implementation, this would redirect to Google OAuth
-    // For demo purposes, we'll simulate the process
-    setLoading(true);
+    setGoogleLoading(true);
+    setError('');
     try {
-      // This would normally be: window.location.href = `${API_URL}/auth/google`
-      // But for demo, we'll simulate successful login
-      const mockToken = "demo-jwt-token";
-      localStorage.setItem('token', mockToken);
+      // In mock mode this signs you in as the seeded demo Google user.
+      // With a real backend + NEXT_PUBLIC_USE_MOCK=false it would route
+      // through Google OAuth (see plan, Phase 1 Option B).
+      const data = await googleLogin('demo-token');
+      localStorage.setItem('token', data.access_token);
       router.push('/chat');
-    } catch (err) {
-      setError('Google login failed');
+    } catch (err: any) {
+      setError(err?.message || 'Google sign-in failed');
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
+  const fillDemo = () => {
+    setEmail('admin@novamind.ai');
+    setPassword('admin123');
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md space-y-6">
-        <h2 className="text-center text-2xl font-bold">Login to NovaMind AI</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          >
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to continue chatting with NovaMind AI."
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <TextField
+          id="email"
+          label="Email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          error={emailErr}
+          autoComplete="email"
+          required
+        />
+        <TextField
+          id="password"
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          error={pwdErr}
+          autoComplete="current-password"
+          required
+        />
 
-        {/* Google Login Button */}
-        <div className="space-y-4">
-          <button
-            onClick={handleGoogleLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-          >
-            {loading ? 'Logging in...' : 'Continue with Google'}
-          </button>
-          <p className="text-xs text-gray-500">
-            By continuing, you agree to NovaMind AI's Terms of Service and Privacy Policy.
-          </p>
-        </div>
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive animate-fade-in">
+            {error}
+          </div>
+        )}
 
-        <p className="text-center text-sm text-gray-500">
-          Don't have an account?{' '}
-          <a href="/signup" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Sign up
-          </a>
-        </p>
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="group flex w-full items-center justify-center gap-2 rounded-lg gradient-bg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+        >
+          {loading ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Signing in…
+            </>
+          ) : (
+            <>
+              <LogIn className="h-4 w-4" />
+              Sign in
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </>
+          )}
+        </button>
+      </form>
+
+      {/* Divider with "or" */}
+      <div className="my-6 flex items-center gap-3">
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs uppercase tracking-wider text-muted-foreground">or</span>
+        <div className="h-px flex-1 bg-border" />
       </div>
-    </div>
+
+      <GoogleButton onClick={handleGoogleLogin} loading={googleLoading} />
+
+      {/* Demo mode helper — only visible when running on the mock backend. */}
+      {isMockMode && (
+        <button
+          type="button"
+          onClick={fillDemo}
+          className="mt-4 flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
+        >
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Try the demo account</p>
+            <p className="text-xs text-muted-foreground truncate">
+              admin@novamind.ai / admin123
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </button>
+      )}
+
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Don&apos;t have an account?{' '}
+        <Link href="/signup" className="font-semibold text-primary hover:underline">
+          Create one
+        </Link>
+      </p>
+
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        By continuing, you agree to NovaMind AI&apos;s Terms of Service and Privacy Policy.
+      </p>
+    </AuthLayout>
   );
 }

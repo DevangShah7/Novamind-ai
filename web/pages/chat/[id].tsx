@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { getMessages, sendMessage } from '../../lib/api';
-import MessageList from '../../components/MessageList';
 import MessageInput from '../../components/MessageInput';
+import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message } from '../../types';
+import { Brain, Sparkles, Copy, Check, MoreVertical, Trash2 } from 'lucide-react';
 
-// Render at request time — chat pages depend on auth + dynamic :id.
 export const getServerSideProps = async () => ({ props: {} });
 
 export default function ChatPage() {
@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [chat, setChat] = useState<Chat | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const { user } = useAuth();
 
@@ -48,8 +49,6 @@ export default function ChatPage() {
   }, [chatId]);
 
   const loadChat = async () => {
-    // In a real app, we'd fetch chat details
-    // For now, we'll create a placeholder
     setChat({
       id: parseInt(chatId),
       title: `Chat ${chatId}`,
@@ -67,18 +66,15 @@ export default function ChatPage() {
 
   const loadMessages = async () => {
     if (!user) return;
-
     setLoading(true);
     try {
       const data = await getMessages(chatId);
       setMessages(data);
-
-      // Scroll to bottom after messages load
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
-    } catch (err) {
-      setError('Failed to load messages');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load messages');
       console.error(err);
     } finally {
       setLoading(false);
@@ -87,26 +83,30 @@ export default function ChatPage() {
 
   const handleSendMessage = async (content: string) => {
     if (!user || !content.trim()) return;
-
     setLoading(true);
-    setIsTyping(true); // Show typing indicator
+    setIsTyping(true);
     try {
       await sendMessage(chatId, content);
-      // Clear input (handled by MessageInput component)
       setLoading(false);
-
-      // Reload messages to include the new one
       await loadMessages();
-
-      // Simulate AI thinking time (hide typing indicator after delay)
       setTimeout(() => {
         setIsTyping(false);
-      }, 1500 + Math.random() * 1000); // Random delay between 1.5-2.5 seconds
-    } catch (err) {
-      setError('Failed to send message');
+      }, 1500 + Math.random() * 1000);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send message');
       console.error(err);
       setLoading(false);
-      setIsTyping(false); // Hide typing indicator on error
+      setIsTyping(false);
+    }
+  };
+
+  const handleCopy = async (msg: Message) => {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      setCopiedId(msg.id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch (err) {
+      console.error('Copy failed', err);
     }
   };
 
@@ -116,137 +116,150 @@ export default function ChatPage() {
   }
 
   if (!chatId || typeof chatId !== 'string') {
-    return <div>Loading...</div>;
+    return null;
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50">
-      {/* Chat Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="h-10 w-10 flex items-center justify-center bg-indigo-100 rounded-full">
-                <span className="text-indigo-600 font-medium">AI</span>
+    <AppShell sidebar={<SidebarChatList />}>
+      <div className="flex h-full flex-col">
+        {/* Chat header */}
+        <div className="flex-shrink-0 border-b border-border bg-card/80 px-4 py-3 backdrop-blur-md sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white shadow-sm">
+                <Brain className="h-5 w-5" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">
                   {chat?.title || 'NovaMind AI Chat'}
                 </h1>
-                <p className="text-sm text-gray-500">
-                  {chat?.chat_type === 'private' ? 'Private conversation' : 'Group chat'}
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Online · {chat?.chat_type === 'private' ? 'Private conversation' : 'Group chat'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-1">
               <button
-                className="p-2 rounded hover:bg-gray-100"
-                title="Chat settings"
+                type="button"
+                aria-label="More options"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                {/* Settings icon would go here */}
-                <span className="text-gray-500">⋯</span>
+                <MoreVertical className="h-4 w-4" />
               </button>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-600">{error}</p>
-          </div>
-        )}
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto bg-background">
+          <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+            {error && (
+              <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+                {error}
+              </div>
+            )}
 
-        {isTyping && (
-          <div className="mb-4 flex items-center space-x-3">
-            <div className="h-10 w-10 flex items-center justify-center bg-indigo-100 rounded-full">
-              <span className="text-indigo-600 font-medium">AI</span>
-            </div>
-            <div className="flex space-x-2">
-              <div className="h-2 w-2 bg-indigo-500 rounded-full animate-pulse"></div>
-              <div className="h-2 w-2 bg-indigo-500 rounded-full animate-pulse delay-100"></div>
-              <div className="h-2 w-2 bg-indigo-500 rounded-full animate-pulse delay-200"></div>
-              <span className="text-sm text-gray-500">NovaMind AI is typing...</span>
-            </div>
-          </div>
-        )}
+            {messages.length === 0 && !isTyping && (
+              <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl gradient-bg text-white shadow-lg">
+                  <Sparkles className="h-8 w-8" />
+                </div>
+                <h2 className="text-xl font-semibold text-foreground">Start the conversation</h2>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                  Ask a question, paste some code, or just say hi. I&apos;m here to help.
+                </p>
+              </div>
+            )}
 
-        <div className="space-y-6">
-          {messages.map((msg, index) => (
-            <div
-              key={msg.id}
-              className="flex w-full"
-            >
-              {msg.is_ai ? (
-                <>
-                  <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-indigo-100 rounded-full">
-                    <span className="text-indigo-600 font-medium">AI</span>
+            {isTyping && (
+              <div className="mb-4 flex items-start gap-3 animate-fade-in">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white">
+                  <Brain className="h-4 w-4" />
+                </div>
+                <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse [animation-delay:150ms]" />
+                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse [animation-delay:300ms]" />
                   </div>
-                  <div className="ml-3 max-w-[80%]">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-xs text-indigo-600 font-medium">NovaMind AI</span>
-                      <span className="text-xs text-gray-400">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-6">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`group flex items-start gap-3 animate-fade-in ${
+                    msg.is_ai ? '' : 'flex-row-reverse'
+                  }`}
+                >
+                  {msg.is_ai ? (
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white">
+                      <Brain className="h-4 w-4" />
+                    </div>
+                  ) : (
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                      <span className="text-xs font-semibold">
+                        {(user.full_name || user.username || user.email || 'U').slice(0, 2).toUpperCase()}
                       </span>
                     </div>
-                    <div className="bg-gray-50 rounded-xl px-4 py-3 max-w-[80%] break-words">
-                      <div className="prose prose-sm max-w-none">
-                        {msg.content}
-                      </div>
+                  )}
+
+                  <div className={`flex max-w-[80%] flex-col ${msg.is_ai ? 'items-start' : 'items-end'}`}>
+                    <div
+                      className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+                        msg.is_ai
+                          ? 'rounded-tl-sm border border-border bg-card text-foreground'
+                          : 'rounded-tr-sm gradient-bg text-white'
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
                     </div>
-                    {msg.meta_data && (
-                      <div className="mt-2 flex items-center space-x-3 text-xs text-gray-400">
-                        {msg.meta_data.model && (
-                          <span className="flex items-center space-x-1">
-                            <span className="h-2 w-2 bg-green-500 rounded-full"></span>
-                            <span>{msg.meta_data.model}</span>
+
+                    <div className={`mt-1 flex items-center gap-2 text-xs text-muted-foreground ${msg.is_ai ? '' : 'flex-row-reverse'}`}>
+                      <span>
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {msg.is_ai && msg.meta_data?.model && (
+                        <>
+                          <span>·</span>
+                          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                            {msg.meta_data.model}
                           </span>
-                        )}
-                        {msg.meta_data.tokens && (
-                          <span>{msg.meta_data.tokens} tokens</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="ml-auto flex-shrink-0">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-xs text-gray-400">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center bg-gray-100 rounded-full">
-                        <span className="text-gray-600 font-medium">{msg.user_id ? 'You' : 'User'}</span>
-                      </div>
-                    </div>
-                    <div className="bg-indigo-600 text-white rounded-xl px-4 py-3 max-w-[80%] break-words">
-                      <div className="prose prose-sm max-w-none text-white">
-                        {msg.content}
-                      </div>
+                        </>
+                      )}
+                      {msg.is_ai && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(msg)}
+                          aria-label="Copy message"
+                          className="flex h-6 w-6 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100"
+                        >
+                          {copiedId === msg.id ? (
+                            <Check className="h-3 w-3 text-emerald-500" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
-                </>
-              )}
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
             </div>
-          ))}
+          </div>
+        </div>
 
-          {/* Scroll spacer */}
-          <div ref={messagesEndRef} />
+        {/* Input */}
+        <div className="flex-shrink-0 border-t border-border bg-card/80 backdrop-blur-md">
+          <div className="mx-auto max-w-3xl px-4 py-3 sm:px-6 sm:py-4">
+            <MessageInput onSend={handleSendMessage} loading={loading} />
+          </div>
         </div>
       </div>
-
-      {/* Input Container */}
-      <div className="border-t border-gray-200">
-        <div className="px-4 sm:px-6 lg:px-8 py-4">
-          <MessageInput
-            onSend={handleSendMessage}
-            loading={loading}
-          />
-        </div>
-      </div>
-    </div>
+    </AppShell>
   );
 }

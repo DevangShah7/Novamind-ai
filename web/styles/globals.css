@@ -5,17 +5,70 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 280 65% 60%;
+    --accent-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 243 75% 59%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 0 0% 100%;
+    --background: 224 47% 6%;
+    --foreground: 0 0% 98%;
+    --card: 224 39% 9%;
+    --card-foreground: 0 0% 98%;
+    --muted: 224 30% 14%;
+    --muted-foreground: 220 14% 65%;
+    --primary: 243 75% 65%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 280 70% 65%;
+    --accent-foreground: 0 0% 100%;
+    --border: 224 30% 18%;
+    --input: 224 30% 18%;
+    --ring: 243 75% 65%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 98%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    @apply bg-background text-foreground antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  }
+
+  body {
+    @apply min-h-screen;
   }
 }
 
-@layer components {
-  .btn-primary {
-    @apply px-4 py-2 bg-indigo-600 text-white font-medium rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2;
+@layer utilities {
+  .gradient-bg {
+    background: linear-gradient(135deg, hsl(243 75% 59%) 0%, hsl(280 65% 60%) 50%, hsl(330 81% 60%) 100%);
+    background-size: 200% 200%;
+    animation: gradient-shift 8s ease infinite;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(243 75% 59%), hsl(280 65% 60%), hsl(330 81% 60%));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .glass-card {
+    @apply bg-white/10 backdrop-blur-md border border-white/20;
   }
 }
