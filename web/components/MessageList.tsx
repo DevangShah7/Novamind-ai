@@ -67,12 +67,25 @@ export default function MessageList({ messages }: MessageListProps) {
                   )}
                 </div>
                 <div className="mt-2 flex items-center space-x-3 text-xs text-gray-400">
-                  {msg.meta_data.model && (
-                    <span className="flex items-center space-x-1">
-                      <span className="h-2 w-2 bg-green-500 rounded-full"></span>
-                      <span>{msg.meta_data.model}</span>
-                    </span>
-                  )}
+                  {(() => {
+                    // What served this reply? Prefer backend metadata (real engine
+                    // name); fall back to the local engine label so the UI is
+                    // always honest about what's actually behind the answer.
+                    const engineName =
+                      msg.meta_data?.model ||
+                      (typeof window !== 'undefined' &&
+                        (window as any).__NOVAMIND_ENGINE__) ||
+                      'NovaMind local v1';
+                    return (
+                      <span
+                        className="flex items-center space-x-1"
+                        title="The engine that produced this reply. NovaMind local is a rule-based engine running on our own backend - not a foundation model."
+                      >
+                        <span className="h-2 w-2 bg-green-500 rounded-full"></span>
+                        <span>engine: {engineName}</span>
+                      </span>
+                    );
+                  })()}
                   {msg.meta_data.tokens && (
                     <span>{msg.meta_data.tokens} tokens</span>
                   )}

@@ -19,6 +19,30 @@ export default function MessageInput({
   const [isFocused, setIsFocused] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speechRecognition, setSpeechRecognition] = useState<any>(null);
+  // "Looks hung" — set when `loading` stays true for >HANG_THRESHOLD ms.
+  // The mock backend replies within ~1s; the FastAPI backend replies within
+  // a few seconds. If neither fires, this banner tells the user the request
+  // is stuck instead of leaving them staring at a spinner.
+  const [hangNotice, setHangNotice] = useState(false);
+  const hangTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const HANG_THRESHOLD = 8000;
+
+  useEffect(() => {
+    if (loading) {
+      setHangNotice(false);
+      if (hangTimerRef.current) clearTimeout(hangTimerRef.current);
+      hangTimerRef.current = setTimeout(() => setHangNotice(true), HANG_THRESHOLD);
+    } else {
+      setHangNotice(false);
+      if (hangTimerRef.current) {
+        clearTimeout(hangTimerRef.current);
+        hangTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (hangTimerRef.current) clearTimeout(hangTimerRef.current);
+    };
+  }, [loading]);
 
   const canSend = (content.trim().length > 0 || files.length > 0) && !loading;
 
@@ -98,6 +122,21 @@ export default function MessageInput({
         isFocused ? 'border-primary ring-2 ring-ring' : 'border-border'
       }`}
     >
+      {/* Hang-detection banner — only shown if loading stays true for >8s. */}
+      {hangNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+        >
+          <Loader2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+          <span>
+            Taking longer than expected. The request may be stuck — try
+            pressing <kbd className="rounded border border-amber-500/40 px-1">Enter</kbd>{' '}
+            in this box to retry, or refresh the page if it doesn&apos;t recover.
+          </span>
+        </div>
+      )}
       {/* File attachments */}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-2 border-b border-border p-3">

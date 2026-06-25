@@ -1,0 +1,39 @@
+{
+  "python": {
+    "list comprehension": "# Square the numbers 1..10\nsquares = [n * n for n in range(1, 11)]\nprint(squares)\n# -> [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]",
+    "read file": "# Read a file into a string\nwith open('input.txt', 'r', encoding='utf-8') as f:\n    text = f.read()\nprint(text)",
+    "write file": "# Write a string to a file\nwith open('output.txt', 'w', encoding='utf-8') as f:\n    f.write('hello\\n')",
+    "json load": "import json\nwith open('data.json', 'r', encoding='utf-8') as f:\n    data = json.load(f)\nprint(data)",
+    "json dump": "import json\ndata = {'name': 'NovaMind', 'version': 1}\nwith open('data.json', 'w', encoding='utf-8') as f:\n    json.dump(data, f, indent=2)",
+    "http request": "import httpx\nresp = httpx.get('https://api.example.com/health', timeout=5.0)\nprint(resp.status_code, resp.json())",
+    "fizzbuzz": "for n in range(1, 101):\n    if n % 15 == 0:\n        print('FizzBuzz')\n    elif n % 3 == 0:\n        print('Fizz')\n    elif n % 5 == 0:\n        print('Buzz')\n    else:\n        print(n)",
+    "fibonacci": "def fib(n):\n    a, b = 0, 1\n    for _ in range(n):\n        yield a\n        a, b = b, a + b\nprint(list(fib(10)))\n# -> [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]",
+    "sort dict by value": "items = {'a': 3, 'b': 1, 'c': 2}\nsorted_items = dict(sorted(items.items(), key=lambda kv: kv[1]))\nprint(sorted_items)\n# -> {'b': 1, 'c': 2, 'a': 3}"
+  },
+  "javascript": {
+    "fetch": "const resp = await fetch('https://api.example.com/health');\nconst data = await resp.json();\nconsole.log(data);",
+    "list comprehension": "const squares = Array.from({ length: 10 }, (_, i) => (i + 1) ** 2);\nconsole.log(squares);\n// -> [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]",
+    "debounce": "function debounce(fn, ms) {\n  let t;\n  return (...args) => {\n    clearTimeout(t);\n    t = setTimeout(() => fn(...args), ms);\n  };\n}\nconst onResize = debounce(() => console.log('resized'), 200);",
+    "fizzbuzz": "for (let n = 1; n <= 100; n++) {\n  if (n % 15 === 0) console.log('FizzBuzz');\n  else if (n % 3 === 0) console.log('Fizz');\n  else if (n % 5 === 0) console.log('Buzz');\n  else console.log(n);\n}",
+    "sort array of objects": "const users = [{name: 'A', age: 30}, {name: 'B', age: 25}];\nusers.sort((a, b) => a.age - b.age);\nconsole.log(users);",
+    "async await": "async function load() {\n  try {\n    const r = await fetch('/api/data');\n    return await r.json();\n  } catch (e) {\n    console.error(e);\n    return null;\n  }\n}",
+    "group by": "const items = [{type: 'a', v: 1}, {type: 'b', v: 2}, {type: 'a', v: 3}];\nconst grouped = items.reduce((acc, it) => {\n  (acc[it.type] ??= []).push(it);\n  return acc;\n}, {});\nconsole.log(grouped);"
+  },
+  "sql": {
+    "join": "SELECT u.id, u.name, o.total\nFROM users u\nINNER JOIN orders o ON o.user_id = u.id\nWHERE o.total > 100\nORDER BY o.total DESC;",
+    "group by": "SELECT category, COUNT(*) AS n, AVG(price) AS avg_price\nFROM products\nGROUP BY category\nHAVING COUNT(*) > 5\nORDER BY n DESC;",
+    "pagination": "SELECT id, title, created_at\nFROM posts\nORDER BY created_at DESC\nLIMIT 20 OFFSET 40;",
+    "create table": "CREATE TABLE users (\n    id          SERIAL PRIMARY KEY,\n    email       TEXT NOT NULL UNIQUE,\n    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()\n);",
+    "insert": "INSERT INTO users (email) VALUES ('a@example.com'), ('b@example.com')\nRETURNING id, email;",
+    "update": "UPDATE users SET email = 'new@example.com' WHERE id = 1;",
+    "delete": "DELETE FROM sessions WHERE created_at < NOW() - INTERVAL '30 days';"
+  },
+  "bash": {
+    "find files": "find . -type f -name '*.py' -not -path './node_modules/*'",
+    "grep": "grep -RIn --exclude-dir=node_modules 'TODO' .",
+    "curl": "curl -sS -X POST http://localhost:8000/api/v1/auth/login \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"email\":\"admin@novamind.ai\",\"password\":\"admin123\"}'",
+    "loop": "for f in *.txt; do echo \"== $f ==\"; wc -l \"$f\"; done",
+    "tar": "tar -czf backup-$(date +%Y%m%d).tar.gz ./data",
+    "disk usage": "du -sh */ | sort -hr | head -20"
+  }
+}

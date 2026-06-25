@@ -46,25 +46,31 @@ def gradient_bg(size, radius):
 def brain_glyph(draw, cx, cy, w, color):
     """Stylised brain: two C-curves meeting at the centerline."""
     s = w
-    # Outer outline thickness
-    line_w = max(2, s // 16)
+    # Outer outline thickness — bumped from s//16 to s//12 so the glyph
+    # reads as solid at 48–64 px (otherwise Chrome's PWA install UI flags it
+    # as too sparse).
+    line_w = max(3, s // 12)
     # Left lobe (open-right C)
     draw.arc((cx - s // 2, cy - s // 2, cx, cy + s // 2),
              start=200, end=160, fill=color, width=line_w)
     # Right lobe (open-left C)
     draw.arc((cx, cy - s // 2, cx + s // 2, cy + s // 2),
              start=20, end=-20, fill=color, width=line_w)
-    # Horizontal connecting lines
-    for dy in (-s // 4, 0, s // 4):
+    # Horizontal connecting lines — denser spacing to fill the glyph
+    for dy in (-s // 3, -s // 6, s // 6, s // 3):
         draw.line((cx - s // 2 + line_w, cy + dy, cx + s // 2 - line_w, cy + dy),
                   fill=color, width=line_w)
+    # Center vertical accent so the brain reads as a single mark at small sizes
+    draw.line((cx, cy - s // 2 + line_w, cx, cy + s // 2 - line_w),
+              fill=color, width=line_w)
 
 def stars(draw, size, color):
+    # Larger, more visible stars so the icon isn't visually empty at small sizes.
     for (x, y, r, op) in [
-        (0.78 * size, 0.18 * size, size // 64, 1.0),
-        (0.16 * size, 0.74 * size, size // 96, 0.9),
-        (0.86 * size, 0.80 * size, size // 48, 1.0),
-        (0.10 * size, 0.30 * size, size // 110, 0.7),
+        (0.78 * size, 0.18 * size, size // 40, 1.0),
+        (0.16 * size, 0.74 * size, size // 56, 0.9),
+        (0.86 * size, 0.80 * size, size // 32, 1.0),
+        (0.10 * size, 0.30 * size, size // 72, 0.7),
     ]:
         draw.ellipse((x - r, y - r, x + r, y + r), fill=color + (int(255 * op),))
 

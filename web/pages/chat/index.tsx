@@ -76,10 +76,16 @@ export default function ChatListPage() {
   return (
     <AppShell sidebar={<SidebarChatList />}>
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 sm:py-12">
-        {isMockMode && (
+        {isMockMode ? (
           <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 animate-fade-in">
-            <strong>Demo mode.</strong> Running with an in-browser mock backend (localStorage). Data stays on this device.
+            <strong>Demo mode.</strong> Running with an in-browser mock backend (localStorage).
+            Data stays on this device. Replies come from the <em>NovaMind local</em> rule-based engine (not a foundation model).
             Try the default admin: <code className="rounded bg-amber-500/20 px-1.5 py-0.5">admin@novamind.ai</code> / <code className="rounded bg-amber-500/20 px-1.5 py-0.5">admin123</code>.
+          </div>
+        ) : (
+          <div className="mb-6 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-4 py-2 text-xs text-indigo-700 dark:text-indigo-300 animate-fade-in flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+            Powered by NovaMind local engine - a rule-based response engine running on our own backend. Not a foundation model.
           </div>
         )}
 

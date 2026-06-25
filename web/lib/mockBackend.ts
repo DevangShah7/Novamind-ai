@@ -99,6 +99,16 @@ const seedIfEmpty = () => {
   }
 };
 
+// ---------- public demo-credentials helper ----------
+// Surfaced by the UI so any page can pre-fill or hint at the demo login.
+// Lives in mockBackend so the seed values live with the seed code.
+export const DEMO_CREDENTIALS = Object.freeze({
+  email: 'admin@novamind.ai',
+  password: 'admin123',
+});
+
+export const getDemoCredentials = () => DEMO_CREDENTIALS;
+
 if (typeof window !== 'undefined') {
   seedIfEmpty();
 }

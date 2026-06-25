@@ -118,4 +118,13 @@ def _build_client():
         return _NullRedis()
 
 
+def get_redis():
+    """Return the singleton Redis client (real or in-memory shim).
+
+    Exists so `app.core` can re-export a factory; existing code that uses
+    `redis_client` directly keeps working unchanged.
+    """
+    return redis_client
+
+
 redis_client = _build_client()

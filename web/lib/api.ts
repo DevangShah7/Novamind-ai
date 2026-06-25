@@ -1,6 +1,9 @@
 import { User, Token, Chat, Message } from '../types';
 import * as mock from './mockBackend';
 
+// Re-export so the UI can use a single import path for the demo creds.
+export const getDemoCredentials = mock.getDemoCredentials;
+
 // Toggle mock mode by setting NEXT_PUBLIC_USE_MOCK=true in .env.local / Vercel.
 // When true, all API calls are intercepted by mockBackend.ts and run
 // entirely in the browser using localStorage. No real server required.
@@ -9,6 +12,29 @@ const USE_MOCK =
   process.env.NEXT_PUBLIC_USE_MOCK === 'true';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+// One-time mock-mode sanity check on the client. Catches the "stale localStorage"
+// case where a previous session stored a token whose user no longer exists in
+// the current seed. Without this, users hit a silent redirect loop on /chat.
+if (typeof window !== 'undefined' && USE_MOCK) {
+  try {
+    const token = window.localStorage.getItem('token');
+    const usersRaw = window.localStorage.getItem('_mock_db_users');
+    if (token && (!usersRaw || JSON.parse(usersRaw).length === 0)) {
+      // Token from a prior session, but the users table is empty (was cleared
+      // or seed didn't run for some reason). Drop the orphan token so the user
+      // lands on /login instead of looping.
+      window.localStorage.removeItem('token');
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[NovaMind mock] Stale token detected and cleared. Please log in with',
+        mock.getDemoCredentials(),
+      );
+    }
+  } catch {
+    /* localStorage may be unavailable (SSR / private mode); ignore. */
+  }
+}
 
 export const register = async (email: string, password: string): Promise<Token> => {
   if (USE_MOCK) return mock.mockRegister(email, password);

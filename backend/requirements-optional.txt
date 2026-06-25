@@ -4,3 +4,4 @@
 #   pip install -r requirements-optional.txt
 #
 chromadb==0.4.15
+rich==13.7.1

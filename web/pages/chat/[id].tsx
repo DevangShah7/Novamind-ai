@@ -147,7 +147,7 @@ export default function ChatPage() {
                 </h1>
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Online · {chat?.chat_type === 'private' ? 'Private conversation' : 'Group chat'}
+                  Online · {chat?.chat_type === 'private' ? 'Private conversation' : 'Group chat'} · NovaMind local engine
                 </p>
               </div>
             </div>

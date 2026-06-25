@@ -3,7 +3,7 @@ from typing import Optional, Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-from app.db.database import SessionLocal
+from app.core.database import SessionLocal
 from app.crud.api_usage import create_api_usage
 from app import models
 import json

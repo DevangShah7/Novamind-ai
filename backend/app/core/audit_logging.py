@@ -448,3 +448,18 @@ async def log_tool_execution_event(tool_name: str, command: List[str],
                                   details: Optional[Dict[str, Any]] = None) -> str:
     """Convenience function to log tool execution events"""
     return await get_audit_logger().log_tool_execution(tool_name, command, user_id, session_id, work_dir, details)
+
+async def log_data_access_event(user_id: str, resource: str,
+                                action: str = "read",
+                                session_id: Optional[str] = None,
+                                details: Optional[Dict[str, Any]] = None) -> str:
+    """Convenience function to log data access events"""
+    return await get_audit_logger().log_data_access(user_id, resource, action, session_id, details)
+
+async def log_configuration_change_event(user_id: str, component: str,
+                                         setting: str, old_value: Any = None,
+                                         new_value: Any = None,
+                                         session_id: Optional[str] = None,
+                                         details: Optional[Dict[str, Any]] = None) -> str:
+    """Convenience function to log configuration change events"""
+    return await get_audit_logger().log_configuration_change(user_id, component, setting, old_value, new_value, session_id, details)
