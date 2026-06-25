@@ -46,14 +46,17 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
       {/* Top bar */}
       <header className="flex-shrink-0 border-b border-border bg-card/80 backdrop-blur-md">
         <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
-          <Link href="/chat" className="flex items-center gap-2.5 group">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-bg text-white shadow-sm">
-              <Brain className="h-5 w-5" />
+          {/* Next.js 12 <Link> requires exactly one child. */}
+          <Link href="/chat" className="group">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-bg text-white shadow-sm">
+                <Brain className="h-5 w-5" />
+              </div>
+              <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+              <span className="hidden rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary sm:inline-flex">
+                <Sparkles className="mr-1 inline h-3 w-3" /> Beta
+              </span>
             </div>
-            <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
-            <span className="hidden rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary sm:inline-flex">
-              <Sparkles className="mr-1 inline h-3 w-3" /> Beta
-            </span>
           </Link>
 
           <div className="flex items-center gap-2">

@@ -72,14 +72,16 @@ export default function SidebarChatList() {
                 <li key={chat.id} className="group relative">
                   <Link
                     href={`/chat/${chat.id}`}
-                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    className={`block rounded-lg px-3 py-2 text-sm transition-colors ${
                       isActive
                         ? 'bg-primary/10 text-primary font-medium'
                         : 'text-foreground hover:bg-muted'
                     }`}
                   >
-                    <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate flex-1">{chat.title || 'Untitled'}</span>
+                    <span className="flex items-center gap-2.5">
+                      <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate flex-1">{chat.title || 'Untitled'}</span>
+                    </span>
                   </Link>
                   <button
                     type="button"

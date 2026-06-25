@@ -58,38 +58,40 @@ export default function ChatList({ chats, onDeleteChat }: ChatListProps) {
         <Link
           key={chat.id}
           href={`/chat/${chat.id}`}
-          className="group relative block overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:scale-[1.02] hover:border-primary/40 hover:shadow-md"
+          className="group block"
         >
-          {/* Decorative gradient corner */}
-          <div className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full gradient-bg opacity-10 blur-2xl transition-opacity group-hover:opacity-20" />
+          <div className="relative overflow-hidden rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:scale-[1.02] hover:border-primary/40 hover:shadow-md">
+            {/* Decorative gradient corner */}
+            <div className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full gradient-bg opacity-10 blur-2xl transition-opacity group-hover:opacity-20" />
 
-          <div className="relative flex items-start justify-between gap-2">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <MessageSquare className="h-5 w-5" />
+            <div className="relative flex items-start justify-between gap-2">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={(e) => handleDelete(e, chat.id)}
+                  disabled={busyId === chat.id}
+                  aria-label="Delete chat"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <button
-                type="button"
-                onClick={(e) => handleDelete(e, chat.id)}
-                disabled={busyId === chat.id}
-                aria-label="Delete chat"
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
+
+            <h3 className="relative mt-4 line-clamp-2 text-base font-semibold text-foreground group-hover:text-primary">
+              {chat.title || 'Untitled chat'}
+            </h3>
+            <p className="relative mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+              <Sparkles className="h-3 w-3" />
+              {timeAgo(chat.updated_at || chat.created_at)}
+            </p>
+
+            {/* Animated bottom border on hover */}
+            <div className="absolute bottom-0 left-0 h-0.5 w-0 gradient-bg transition-all duration-300 group-hover:w-full" />
           </div>
-
-          <h3 className="relative mt-4 line-clamp-2 text-base font-semibold text-foreground group-hover:text-primary">
-            {chat.title || 'Untitled chat'}
-          </h3>
-          <p className="relative mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3" />
-            {timeAgo(chat.updated_at || chat.created_at)}
-          </p>
-
-          {/* Animated bottom border on hover */}
-          <div className="absolute bottom-0 left-0 h-0.5 w-0 gradient-bg transition-all duration-300 group-hover:w-full" />
         </Link>
       ))}
     </div>
