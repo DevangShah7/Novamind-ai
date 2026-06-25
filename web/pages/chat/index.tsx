@@ -4,7 +4,7 @@ import { getChats, createChat, isMockMode } from '../../lib/api';
 import ChatList from '../../components/ChatList';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
-import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight } from 'lucide-react';
+import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2 } from 'lucide-react';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -20,10 +20,12 @@ export default function ChatListPage() {
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { user } = useAuth();
 
   useEffect(() => {
+    setMounted(true);
     loadChats();
   }, []);
 
@@ -54,6 +56,17 @@ export default function ChatListPage() {
       setLoading(false);
     }
   };
+
+  if (!mounted) {
+    // SSR + first client paint: render a lightweight skeleton. This
+    // also runs while the auth context is still hydrating, so we can't
+    // decide whether to redirect yet — that's why we wait for `mounted`.
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!user) {
     router.replace('/login');

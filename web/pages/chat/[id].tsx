@@ -5,7 +5,7 @@ import MessageInput from '../../components/MessageInput';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message } from '../../types';
-import { Brain, Sparkles, Copy, Check, MoreVertical, Trash2 } from 'lucide-react';
+import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2 } from 'lucide-react';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -18,12 +18,14 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [chat, setChat] = useState<Chat | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const { user } = useAuth();
 
   useEffect(() => {
+    setMounted(true);
     if (!chatId || typeof chatId !== 'string') {
       router.replace('/chat');
       return;
@@ -109,6 +111,16 @@ export default function ChatPage() {
       console.error('Copy failed', err);
     }
   };
+
+  if (!mounted) {
+    // SSR + first client paint: render a loading state. We can't decide
+    // whether to redirect to /login until the auth context has hydrated.
+    return (
+      <div className="flex h-screen items-center justify-center bg-background text-foreground">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!user) {
     router.replace('/login');
