@@ -41,7 +41,12 @@ $RedeployCooldown = 300        # Don't redeploy more than once per 5 min
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $line = "[{0:yyyy-MM-dd HH:mm:ss}] [{1}] {2}" -f (Get-Date), $Level, $Message
-    Add-Content -Path $LogFile -Value $line
+    # Add-Content in Windows PowerShell 5.1 has no -Lock parameter (that's
+    # PowerShell 7+). On the rare chance two watchdogs ran at once they
+    # would race, but the worst case is a missing log line. Swallow
+    # errors so a transient IO blip never kills the watchdog.
+    try { Add-Content -Path $LogFile -Value $line -ErrorAction Stop }
+    catch { }
     Write-Host $line
 }
 
@@ -61,11 +66,18 @@ function Get-CurrentTunnelUrl {
     # Reads the most recent trycloudflare.com URL written to the tunnel instance log
     # OR its sibling stderr log. PowerShell's Start-Process refuses same-file redirects
     # for both streams, so we write them separately.
+    #
+    # Cloudflare occasionally logs https://api.trycloudflare.com in the startup
+    # output before the real tunnel URL appears -- that's Cloudflare's own API
+    # docs URL, not our tunnel. Skip it.
     $candidates = @($TunnelLog, "$TunnelLog.err")
     foreach ($path in $candidates) {
         if (-not (Test-Path $path)) { continue }
         $m = Select-String -Path $path -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -List
-        if ($null -ne $m) { return $m.Matches[0].Value }
+        if ($null -ne $m) {
+            $url = $m.Matches[0].Value
+            if ($url -ne 'https://api.trycloudflare.com') { return $url }
+        }
     }
     return $null
 }
@@ -109,11 +121,20 @@ function Get-SecondsSinceRedeploy {
 
 function Start-NewTunnel {
     Write-Log "Killing any existing cloudflared processes..."
-    Get-Process -Name cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
-    Start-Sleep -Seconds 2
+    # Use taskkill /F /T to force-kill cloudflared and any children. On
+    # Windows, Stop-Process -Force can hang for many seconds if the
+    # process has open file handles, and the hang is silent under
+    # $ErrorActionPreference = Stop. taskkill /F /T is reliable and fast.
+    # We don't capture the output -- it goes to the console only.
+    & taskkill.exe /F /T /IM cloudflared.exe 2>&1 | Out-Null
+    # Give the OS a moment to release any file handles the old cloudflared held.
+    Start-Sleep -Seconds 3
 
     # Empty the instance log so Get-CurrentTunnelUrl reads only the new URL.
-    if (Test-Path $TunnelLog) { Remove-Item $TunnelLog -Force }
+    # On Windows, deleting a file with an open handle fails silently -- we
+    # swallow the error rather than crash.
+    if (Test-Path $TunnelLog) { Remove-Item $TunnelLog -Force -ErrorAction SilentlyContinue }
+    if (Test-Path "$TunnelLog.err") { Remove-Item "$TunnelLog.err" -Force -ErrorAction SilentlyContinue }
 
     Write-Log "Starting fresh cloudflared tunnel -> $BackendUrl"
     # PowerShell's Start-Process rejects same-file stdout+stderr redirects, so
@@ -145,17 +166,18 @@ function Start-NewTunnel {
     Write-Log "New tunnel URL: $url"
     Save-State -Url $url -Status 'starting'
 
-    # Give Cloudflare's edge a moment to actually route to us before probing.
-    Start-Sleep -Seconds 5
+    # Give Cloudflare's edge time to actually route to us before probing.
+    # Mumbai edge in particular can take 30-60s to make a fresh tunnel reachable.
+    Start-Sleep -Seconds 10
 
-    # Verify the tunnel actually serves /health.
+    # Verify the tunnel actually serves /health. Be patient -- 8 attempts * 5s = 40s.
     $probeOk = $false
-    for ($i = 0; $i -lt 5; $i++) {
+    for ($i = 0; $i -lt 8; $i++) {
         if (Test-BackendAlive -Url $url) { $probeOk = $true; break }
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 5
     }
     if (-not $probeOk) {
-        Write-Log "Tunnel started but /health probe failed" 'ERROR'
+        Write-Log "Tunnel started but /health probe failed after 40s" 'ERROR'
         Save-State -Url $url -Status 'probe_failed'
         return $url
     }
@@ -275,6 +297,15 @@ function Redeploy-Vercel {
         Write-Log "vercel --prod completed"
         return $true
     } catch {
+        # Don't let transient stream-reader issues kill the watchdog. The
+        # <claude-code-hint> exception text is from a plugin injection,
+        # not a real deploy failure -- if the process exited cleanly the
+        # exit code check above would have caught true errors.
+        $msg = "$_"
+        if ($msg -match '<claude-code-hint') {
+            Write-Log "vercel deploy emitted plugin hint (non-fatal): $msg" 'WARN'
+            return $true
+        }
         Write-Log "vercel deploy failed: $_" 'ERROR'
         return $false
     } finally {
@@ -300,11 +331,19 @@ $currentUrl = $null
 $existing = Get-Process -Name cloudflared -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Log "Existing cloudflared PID $($existing.Id) -- checking its URL..."
-    # Tail the existing instance log (if any) for the URL.
+    # Tail the existing instance log (if any) for the URL. We need to look
+    # for logs from PREVIOUS cloudflared instances (e.g. tunnel-backend.log,
+    # tunnel-backend-2.log), but skip our own files:
+    #   tunnel-watchdog.log (this script's output)
+    #   tunnel-watchdog-instance.log (+ .err) (current cloudflared's stdout)
+    # If the search picked up the latter two, Copy-Item would try to copy a
+    # file onto itself and throw "Cannot overwrite with itself" -- fatal
+    # under $ErrorActionPreference = 'Stop'.
     $existingLog = Get-ChildItem -Path $BackendDir -Filter 'tunnel-*.log' -ErrorAction SilentlyContinue |
-                   Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                       Where-Object { $_.Name -notlike 'tunnel-watchdog*' } |
+                       Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($existingLog) {
-        Copy-Item $existingLog.FullName $TunnelLog -Force
+        Copy-Item $existingLog.FullName $TunnelLog -Force -ErrorAction SilentlyContinue
         $currentUrl = Get-CurrentTunnelUrl
         if ($currentUrl -and (Test-BackendAlive -Url $currentUrl)) {
             Write-Log "Existing tunnel is healthy: $currentUrl"
@@ -334,17 +373,55 @@ if ($currentUrl) {
 }
 
 $failCount = 0
-$lastRedeploy = $null
+# NOTE: $lastRedeploy is intentionally left UNDEFINED here. On first reference
+# it will be $null and Get-SecondsSinceRedeploy treats $null as "ages ago" so
+# the first redeploy goes through. Reassigning to $null here would reset any
+# value set during the boot-time redeploy and break the cooldown.
 
+# Wrap the entire main loop in try/catch so a transient error (a logging
+# race, a Save-State IO blip, an unreachable tunnel during a probe) logs and
+# continues instead of killing the watchdog silently.
 while ($true) {
-    Start-Sleep -Seconds $ProbeEverySec
-    $url = Get-CurrentTunnelUrl
-    if (-not $url) {
-        # No URL known -- try to start one.
+    try {
+        Start-Sleep -Seconds $ProbeEverySec
+        $url = Get-CurrentTunnelUrl
+        if (-not $url) {
+            # No URL known -- try to start one.
+            $failCount++
+            Write-Log "No tunnel URL known ($failCount / $FailureThreshold)" 'WARN'
+            if ($failCount -ge $FailureThreshold) {
+                $failCount = 0
+                $currentUrl = Start-NewTunnel
+                if ($currentUrl) {
+                    Update-LocalEnv -Url $currentUrl
+                    $secondsSince = Get-SecondsSinceRedeploy -LastRedeploy $lastRedeploy
+                    if ($secondsSince -ge $RedeployCooldown) {
+                        if (Redeploy-Vercel -Url $currentUrl) {
+                            $lastRedeploy = Get-Date
+                        }
+                    } else {
+                        Write-Log "Skipping redeploy -- cooldown $($RedeployCooldown - $secondsSince)s remaining"
+                    }
+                }
+            }
+            continue
+        }
+
+        $ok = Test-BackendAlive -Url $url
+        if ($ok) {
+            if ($failCount -gt 0) {
+                Write-Log "Tunnel recovered after $failCount failed probes"
+            }
+            $failCount = 0
+            Save-State -Url $url -Status 'healthy'
+            continue
+        }
+
         $failCount++
-        Write-Log "No tunnel URL known ($failCount / $FailureThreshold)" 'WARN'
+        Write-Log "Probe failed ($failCount / $FailureThreshold) for $url" 'WARN'
         if ($failCount -ge $FailureThreshold) {
             $failCount = 0
+            Write-Log "Tunnel declared dead -- restarting"
             $currentUrl = Start-NewTunnel
             if ($currentUrl) {
                 Update-LocalEnv -Url $currentUrl
@@ -358,35 +435,8 @@ while ($true) {
                 }
             }
         }
-        continue
-    }
-
-    $ok = Test-BackendAlive -Url $url
-    if ($ok) {
-        if ($failCount -gt 0) {
-            Write-Log "Tunnel recovered after $failCount failed probes"
-        }
-        $failCount = 0
-        Save-State -Url $url -Status 'healthy'
-        continue
-    }
-
-    $failCount++
-    Write-Log "Probe failed ($failCount / $FailureThreshold) for $url" 'WARN'
-    if ($failCount -ge $FailureThreshold) {
-        $failCount = 0
-        Write-Log "Tunnel declared dead -- restarting"
-        $currentUrl = Start-NewTunnel
-        if ($currentUrl) {
-            Update-LocalEnv -Url $currentUrl
-            $secondsSince = Get-SecondsSinceRedeploy -LastRedeploy $lastRedeploy
-            if ($secondsSince -ge $RedeployCooldown) {
-                if (Redeploy-Vercel -Url $currentUrl) {
-                    $lastRedeploy = Get-Date
-                }
-            } else {
-                Write-Log "Skipping redeploy -- cooldown $($RedeployCooldown - $secondsSince)s remaining"
-            }
-        }
+    } catch {
+        # Never let the watchdog die silently. Log and continue.
+        Write-Log "Unhandled exception in main loop: $_" 'ERROR'
     }
 }

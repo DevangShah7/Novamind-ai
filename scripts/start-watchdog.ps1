@@ -11,11 +11,12 @@ if (-not (Test-Path $Script)) {
     exit 1
 }
 
-# If a watchdog is already running, don't double-start.
-$running = Get-Process -Name powershell -ErrorAction SilentlyContinue |
+# If a watchdog is already running, don't double-start. Win32_Process via CIM
+# because Get-Process's CommandLine property requires elevation.
+$running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
     Where-Object { $_.CommandLine -match 'watch-tunnel\.ps1' }
 if ($running) {
-    $pidList = ($running.Id -join ', ')
+    $pidList = ($running.ProcessId -join ', ')
     Write-Host ("watchdog already running (PIDs: " + $pidList + ")")
     exit 0
 }
