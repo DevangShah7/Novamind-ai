@@ -4,6 +4,7 @@ import { SessionProvider } from '../lib/auth';
 import { ThemeProvider } from '../lib/theme';
 import AdminLayout from '../components/layout/AdminLayout';
 import ThemeToggle from '../components/ThemeToggle';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -29,14 +30,16 @@ function AppRoot(props: any) {
   );
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="flex-1">{content}</div>
-      <div className="fixed bottom-4 right-4 z-50">
-        <ThemeToggle />
+    <ErrorBoundary>
+      <div className="flex min-h-screen flex-col">
+        <div className="flex-1">{content}</div>
+        <div className="fixed bottom-4 right-4 z-50">
+          <ThemeToggle />
+        </div>
+        <footer className="text-center py-4 text-sm text-muted-foreground w-full">
+          Developed By Devang Shah
+        </footer>
       </div>
-      <footer className="text-center py-4 text-sm text-muted-foreground w-full">
-        Developed By Devang Shah
-      </footer>
-    </div>
+    </ErrorBoundary>
   );
 }

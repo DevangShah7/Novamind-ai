@@ -34,5 +34,8 @@ class User(Base):
     # API Usage
     api_usage = relationship("ApiUsage", back_populates="user", cascade="all, delete-orphan")
 
+    # Chats
+    chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

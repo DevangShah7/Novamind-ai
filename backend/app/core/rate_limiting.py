@@ -15,6 +15,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         times: int = 100,
         seconds: int = 60,
+        auth_times: Optional[int] = None,
         exclude_paths: Optional[list] = None
     ):
         """
@@ -22,13 +23,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         Args:
             app: ASGI application
-            times: Number of allowed requests
+            times: Number of allowed requests per window for most endpoints
             seconds: Time window in seconds
+            auth_times: Optional tighter limit for /auth/* endpoints
             exclude_paths: List of paths to exclude from rate limiting
         """
         super().__init__(app)
         self.times = times
         self.seconds = seconds
+        self.auth_times = auth_times or max(10, times // 10)
         self.exclude_paths = exclude_paths or []
         self.redis_prefix = "rate_limit"
 
@@ -100,18 +103,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _get_rate_limit_config(self, request: Request) -> tuple[int, int]:
         """Get rate limit configuration based on request"""
-        # Check for API key in headers
-        api_key_header = request.headers.get("X-API-Key")
-        if api_key_header:
-            # API key users get higher limits
-            return 1000, 60  # 1000 requests per minute
-
-        # Check if it's an auth endpoint ( stricter limits for auth)
+        # Auth endpoints get the tighter, dedicated bucket.
         if request.url.path.startswith("/auth/"):
-            return 10, 60  # 10 requests per minute for auth endpoints
+            return self.auth_times, self.seconds
 
-        # Default limit for all other requests
-        return 100, 60  # 100 requests per minute
+        # Default limit for everything else.
+        return self.times, self.seconds
 
     def _get_client_id(self, request: Request) -> str:
         """Get client identifier for rate limiting"""

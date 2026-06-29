@@ -1,4 +1,4 @@
-import { Message } from '../types';
+import { Message, asMeta } from '../types';
 import { formatDistanceToNow } from 'date-fns';
 import { Copy, Speaker } from 'lucide-react';
 import { textToSpeech } from '../lib/voice';
@@ -71,8 +71,9 @@ export default function MessageList({ messages }: MessageListProps) {
                     // What served this reply? Prefer backend metadata (real engine
                     // name); fall back to the local engine label so the UI is
                     // always honest about what's actually behind the answer.
+                    const meta = asMeta(msg.meta_data);
                     const engineName =
-                      msg.meta_data?.model ||
+                      meta?.model ||
                       (typeof window !== 'undefined' &&
                         (window as any).__NOVAMIND_ENGINE__) ||
                       'NovaMind local v1';
@@ -86,9 +87,11 @@ export default function MessageList({ messages }: MessageListProps) {
                       </span>
                     );
                   })()}
-                  {msg.meta_data.tokens && (
-                    <span>{msg.meta_data.tokens} tokens</span>
-                  )}
+                  {(() => {
+                    const meta = asMeta(msg.meta_data);
+                    const t = meta?.tokens ?? meta?.tokens_used;
+                    return t ? <span>{t} tokens</span> : null;
+                  })()}
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();

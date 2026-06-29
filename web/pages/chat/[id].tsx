@@ -4,14 +4,17 @@ import { getMessages, sendMessage } from '../../lib/api';
 import MessageInput from '../../components/MessageInput';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
-import { Chat, Message } from '../../types';
+import { Chat, Message, asMeta } from '../../types';
 import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2 } from 'lucide-react';
 
 export const getServerSideProps = async () => ({ props: {} });
 
 export default function ChatPage() {
   const router = useRouter();
-  const rawChatId = router.query.chatId;
+  // The dynamic route is [id].tsx, so the query key is `id` — not `chatId`.
+  // (Earlier this read `router.query.chatId`, which is always undefined and
+  // immediately bounced users back to /chat. That's why chat appeared broken.)
+  const rawChatId = router.query.id;
   const chatId = Array.isArray(rawChatId) ? rawChatId[0] : rawChatId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -27,7 +30,6 @@ export default function ChatPage() {
   useEffect(() => {
     setMounted(true);
     if (!chatId || typeof chatId !== 'string') {
-      router.replace('/chat');
       return;
     }
     loadChat();
@@ -67,11 +69,12 @@ export default function ChatPage() {
   };
 
   const loadMessages = async () => {
-    if (!user) return;
+    if (!user || !chatId) return;
     setLoading(true);
     try {
       const data = await getMessages(chatId);
       setMessages(data);
+      setError(null);
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
@@ -87,13 +90,12 @@ export default function ChatPage() {
     if (!user || !content.trim()) return;
     setLoading(true);
     setIsTyping(true);
+    setError(null);
     try {
       await sendMessage(chatId, content);
       setLoading(false);
       await loadMessages();
-      setTimeout(() => {
-        setIsTyping(false);
-      }, 1500 + Math.random() * 1000);
+      setIsTyping(false);
     } catch (err: any) {
       setError(err?.message || 'Failed to send message');
       console.error(err);
@@ -234,11 +236,11 @@ export default function ChatPage() {
                       <span>
                         {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      {msg.is_ai && msg.meta_data?.model && (
+                      {msg.is_ai && asMeta(msg.meta_data)?.model && (
                         <>
                           <span>·</span>
                           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-                            {msg.meta_data.model}
+                            {asMeta(msg.meta_data)!.model}
                           </span>
                         </>
                       )}

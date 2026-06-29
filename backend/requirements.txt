@@ -1,3 +1,4 @@
+# Core — required everywhere (uvicorn, Vercel, Docker).
 fastapi==0.95.2
 uvicorn[standard]==0.18.3
 sqlalchemy==1.4.23
@@ -12,5 +13,12 @@ google-auth-oauthlib==1.1.0
 requests==2.31.0
 python-dotenv==1.0.0
 pydub==0.25.1
-psycopg2-binary==2.9.9
 httpx==0.25.2
+
+# Postgres driver. Kept as psycopg2-binary for SQLAlchemy 1.4 compat.
+psycopg2-binary==2.9.9
+
+# Serverless deployment: ASGI → AWS Lambda / Vercel Functions adapter.
+# Only used when backend/api/index.py is loaded (i.e. on Vercel); harmless
+# elsewhere because nothing in the main path imports mangum.
+mangum==0.17.0

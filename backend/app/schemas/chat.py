@@ -14,7 +14,9 @@ class MessageBase(BaseModel):
     content: str
     message_type: MessageType = MessageType.TEXT
     is_ai: bool = False
-    meta_data: Optional[Dict[str, Any]] = None
+    # Stored as JSON text in SQLite; tolerate either a dict or a string
+    # depending on the path that read the row.
+    meta_data: Optional[Any] = None
 
 class MessageCreate(MessageBase):
     pass
@@ -49,7 +51,7 @@ class ChatInDBBase(ChatBase):
     id: int
     user_id: int
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
     last_message_at: Optional[datetime] = None
 
     class Config:

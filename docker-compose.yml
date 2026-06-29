@@ -1,49 +1,68 @@
-version: '3.8'
+# NovaMind AI — local dev / single-VM deploy.
+#
+# Usage:
+#   docker compose up --build           # backend only (SQLite default)
+#   docker compose --profile llm up     # backend + Ollama for the /v1/* surface
+#   docker compose logs -f backend      # tail backend logs
+#
+# The frontend (Next.js) ships separately to Vercel — see README.md.
+# `version` is intentionally omitted: it's deprecated in Compose v2+ and ignored.
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: novamind-backend:local
+    container_name: novamind-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env            # optional — falls back to env below if absent
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - db
-      - redis
-      - chroma
-
-  frontend:
-    build: ./web
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000/api/v1
-    depends_on:
-      - backend
-
-  db:
-    image: postgres:13
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=postgres
+      # Hardcoded sane defaults so a fresh checkout boots without a .env.
+      DATABASE_URL: sqlite:////app/data/novamind.db
+      AUDIT_LOG_DIR: /app/logs
+      REDIS_REQUIRED: "0"
+      LOG_LEVEL: INFO
+      ALLOW_VERCEL_PREVIEWS: "0"
+      BACKEND_CORS_ORIGINS: http://localhost:3000
+      # Required in prod: replace with `python -c "import secrets; print(secrets.token_urlsafe(64))"`.
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me-in-production-9f8e7d6c5b4a3210}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - novamind-data:/app/data
+      - novamind-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    profiles: ["default", "llm"]
 
-  redis:
-    image: redis:6-alpine
+  # Local LLM for the OpenAI-compatible /v1/* surface.
+  # Opt in with `--profile llm`; pull models once booted:
+  #   docker compose exec ollama ollama pull llama3.2:3b
+  ollama:
+    image: ollama/ollama:latest
+    container_name: novamind-ollama
+    restart: unless-stopped
     ports:
-      - "6379:6379"
-
-  chroma:
-    image: chromadb/chroma:latest
-    ports:
-      - "8000:8000"
+      - "11434:11434"
     volumes:
-      - chroma_data:/chroma/chroma
+      - ollama-models:/root/.ollama
+    profiles: ["llm"]
+    # For GPU, uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
 volumes:
-  postgres_data:
-  redis_data:
-  chroma_data:
+  novamind-data:
+  novamind-logs:
+  ollama-models:

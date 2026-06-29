@@ -36,12 +36,23 @@ export interface Message {
   is_ai: boolean;
   chat_id: number;
   user_id: number | null;
-  meta_data: {
+  // The API serialises this as either an object or a JSON string depending
+  // on the column path it took. Tolerate both.
+  meta_data?: string | {
     model?: string;
     tokens?: number;
     [key: string]: any;
-  };
+    } | null;
   created_at: string;
+}
+
+/** Coerce the heterogeneous meta_data field into a plain object (or null). */
+export function asMeta(md: Message['meta_data']): Record<string, any> | null {
+  if (md == null) return null;
+  if (typeof md === 'string') {
+    try { return JSON.parse(md); } catch { return null; }
+  }
+  return md as Record<string, any>;
 }
 
 export interface ApiKey {

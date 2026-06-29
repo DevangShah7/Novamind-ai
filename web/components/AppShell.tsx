@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../lib/auth';
 import { logout } from '../lib/api';
-import { Brain, LogOut, MessageSquarePlus, ChevronDown, User as UserIcon, Sparkles } from 'lucide-react';
+import { Brain, LogOut, MessageSquarePlus, ChevronDown, User as UserIcon, Sparkles, Key } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 
 interface AppShellProps {
@@ -68,6 +68,15 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
               <MessageSquarePlus className="h-4 w-4" />
               New chat
             </button>
+            <button
+              type="button"
+              onClick={() => router.push('/developer')}
+              title="Developer Portal"
+              className="hidden items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted sm:flex"
+            >
+              <Key className="h-4 w-4" />
+              API
+            </button>
             <ThemeToggle />
 
             {/* User menu */}
@@ -96,8 +105,24 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     </div>
                     <button
                       type="button"
-                      onClick={handleLogout}
+                      onClick={() => { setMenuOpen(false); router.push('/developer'); }}
                       className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                    >
+                      <Key className="h-4 w-4" />
+                      Developer Portal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); router.push('/docs'); }}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                    >
+                      <Brain className="h-4 w-4" />
+                      API Documentation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
                     >
                       <LogOut className="h-4 w-4" />
                       Log out

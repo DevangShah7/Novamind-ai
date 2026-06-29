@@ -687,39 +687,45 @@ def get_llm_service(model_variant: str = "local") -> BaseLLMService:
     Users can specify which NeuraX variant to use, or provide their own implementation.
 
     Args:
-        model_variant: Which variant to use. Default is `"local"` (rule-based,
-                       in-process, no external API). Other supported values:
-                       "base", "code", "creative", "analysis" (legacy NeuraX
-                       template variants) and "custom" (placeholder for users
-                       to swap in a foundation-model backend).
+        model_variant: Which variant to use. Default is ``"local"`` — the
+                       in-process rule engine, always available. If Ollama
+                       is running and ``OLLAMA_DEFAULT_MODEL`` is set (or
+                       ``"local"`` is passed and Ollama is reachable), we
+                       route through Ollama instead. Other supported values:
+                       "base", "code", "creative", "analysis" (legacy
+                       NeuraX template variants) and "custom" (placeholder
+                       for users to swap in a foundation-model backend).
 
     Returns:
         BaseLLMService: An instance of the LLM service to use
     """
-    # Imported here to avoid a circular import: local_engine.py imports from
-    # this module (BaseLLMService / LLMMessage etc.).
+    # Imported here to avoid a circular import: local_engine / ollama_service
+    # both import from this module.
     from .local_engine import NovaMindLocal
+    from .ollama_service import OllamaChatService, ollama_reachable, select_default_ollama_model
+    import os
 
-    # Map variant names to classes. "local" is the default — it's our own
-    # rule-based engine and has no third-party dependencies.
+    # When the caller doesn't pin a specific variant, prefer Ollama if it's
+    # reachable so the in-app chat ("AI working properly") actually uses a
+    # real model. Users on Ollama=off keep the rule engine.
+    if model_variant.lower() in ("local", "auto") and ollama_reachable():
+        default_model = os.environ.get("OLLAMA_DEFAULT_MODEL") or select_default_ollama_model()
+        return OllamaChatService(model_name=default_model)
+
     variant_map = {
         "local": NovaMindLocal,
         "base": NeuraXBase,
         "code": NeuraXCode,
         "creative": NeuraXCreative,
         "analysis": NeuraXAnalysis,
-        "custom": ExampleLLMService,  # Fallback to example for custom implementations
+        "custom": ExampleLLMService,
     }
 
-    # Get the appropriate class
     service_class = variant_map.get(model_variant.lower(), NovaMindLocal)
 
-    # Return the appropriate instance
     if model_variant.lower() == "custom":
-        # For custom implementations, users should replace this with their own model name
         return service_class(model_name="custom-llm")
     elif model_variant.lower() == "local":
         return service_class(model_name="NovaMind-local-v1")
     else:
-        # For NeuraX variants, use the appropriate model name
         return service_class()

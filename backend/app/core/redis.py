@@ -95,6 +95,70 @@ class _NullRedis:
     def close(self):
         pass
 
+    # Sorted-set ops (sliding-window rate limiter needs these)
+    def _zs(self, key):
+        z = self._store.get(key)
+        if isinstance(z, list):
+            return z  # already a sorted-set representation
+        return []
+
+    def zadd(self, key, mapping):
+        if not isinstance(mapping, dict):
+            mapping = {str(mapping): 0.0}
+        existing = self._zs(key)
+        scores = {member: float(score) for member, score in existing}
+        for member, score in mapping.items():
+            scores[str(member)] = float(score)
+        self._store[key] = [(m, s) for m, s in scores.items()]
+        return len(mapping)
+
+    def zremrangebyscore(self, key, min_score, max_score):
+        existing = self._zs(key)
+        kept = [(m, s) for m, s in existing if not (float(min_score) <= s <= float(max_score))]
+        self._store[key] = kept
+        return len(existing) - len(kept)
+
+    def zcard(self, key):
+        return len(self._zs(key))
+
+    def zrange(self, key, start, end, withscores=False):
+        existing = sorted(self._zs(key), key=lambda x: x[1])
+        if end == -1:
+            sliced = existing[start:]
+        else:
+            sliced = existing[start:end + 1]
+        if withscores:
+            return [(m, s) for m, s in sliced]
+        return [m for m, _ in sliced]
+
+    # List ops (chat history uses lpush/ltrim/lrange)
+    def _list(self, key):
+        v = self._store.get(key)
+        if isinstance(v, list):
+            return v
+        return []
+
+    def lpush(self, key, *values):
+        items = self._list(key)
+        for v in reversed(values):
+            items.insert(0, v)
+        self._store[key] = items
+        return len(items)
+
+    def lrange(self, key, start, end):
+        items = self._list(key)
+        if end == -1:
+            return items[start:]
+        return items[start:end + 1]
+
+    def ltrim(self, key, start, end):
+        items = self._list(key)
+        if end == -1:
+            self._store[key] = items[start:]
+        else:
+            self._store[key] = items[start:end + 1]
+        return True
+
 
 def _build_client():
     if redis is None:

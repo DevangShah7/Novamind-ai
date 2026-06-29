@@ -56,23 +56,12 @@ NovaMind AI OS
 
 ### Environment Variables
 
-Create `.env` file in backend directory:
-```
-SECRET_KEY=your-secret-key-here
-ACCESS_TOKEN_EXPIRE_MINUTES=480
-DATABASE_URL=postgresql://postgres:postgres@db:5432/postgres
-REDIS_URL=redis://redis:6379
-CHROMA_HOST=chroma
-CHROMA_PORT=8000
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/auth/google/callback
-```
+`backend/.env.example` and `web/.env.example` document every variable. Copy
+each to `.env` / `.env.local` (both gitignored) and fill in values. Never
+commit real secrets.
 
-Create `.env.local` file in web directory:
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-```
+- Backend: see `backend/.env.example`
+- Frontend: see `web/.env.example`
 
 ### Running with Docker Compose (Recommended)
 
@@ -106,6 +95,202 @@ cd web
 npm install
 npm run dev
 ```
+
+## Deployment
+
+### Architecture
+
+```
+Next.js (Vercel)  ──HTTPS──▶  FastAPI on Vercel Serverless (Mangum)
+                              │       │
+                              │       └──▶  Neon Postgres (free)
+                              │
+                              └──▶  Ollama on your server
+                                     (exposed via cloudflared tunnel)
+```
+
+- **Frontend** → Vercel (Next.js static + edge).
+- **Backend** → Vercel serverless (`api/index.py` → `Mangum(app)`).
+  `Base.metadata.create_all()` + idempotent ALTERs + admin seed run on the
+  first cold-start (gated by `RUN_DB_MIGRATIONS=1`); flip it off after the
+  first successful boot to keep cold-starts fast.
+- **Database** → [Neon](https://neon.tech) free Postgres
+  (SQLite does NOT survive on Vercel — read-only, ephemeral).
+- **LLM** → Self-hosted Ollama on your own server, exposed to the
+  internet with a free `cloudflared` quick tunnel. The backend reads
+  `OLLAMA_BASE_URL` to talk to it.
+
+### Vercel timeout caveat
+
+Vercel free kills requests at **10s**; Pro at **60s**; Enterprise higher.
+Ollama `llama3.2:3b` CPU inference is 5-30s. The chat endpoint catches
+`httpx.TimeoutException` and returns **504 `llm_timeout`** so the client
+knows to retry instead of Vercel hard-cutting the request. Set
+`OLLAMA_TIMEOUT_S=55` on Vercel (under the 60s Pro ceiling) to fail fast.
+
+### One-time setup
+
+#### 1. Create the Neon database
+
+1. Sign up at <https://neon.tech> (free tier, no card).
+2. Create a project → copy the connection string. It looks like:
+   ```
+   postgresql://USER:PASS@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+   ```
+   Save it — you'll set it as `DATABASE_URL` on Vercel.
+
+#### 2. Expose your Ollama server
+
+On the machine running Ollama:
+
+```bash
+# Install cloudflared (no account needed for quick tunnels):
+#   macOS:   brew install cloudflared
+#   Linux:   https://pkg.cloudflare.com/  (one-line install)
+#   Windows: winget install Cloudflare.cloudflared
+
+cloudflared tunnel --url http://localhost:11434
+```
+
+Copy the `https://<random>.trycloudflare.com` URL it prints. Set it as
+`OLLAMA_BASE_URL` on Vercel.
+
+#### 3. Install the Vercel CLI
+
+```bash
+npm i -g vercel
+```
+
+#### 4. Deploy the backend
+
+```bash
+cd backend
+vercel                                       # link to a project, accept defaults
+# First deploy answers the prompts:
+#   "Set up and deploy?" → Y
+#   "Which scope?" → your account
+#   "Link to existing project?" → N
+#   "Project name?" → novamind-api
+#   "In which directory is your code located?" → ./
+```
+
+When the first deploy finishes, open the Vercel dashboard for the new
+project and set these env vars on **all environments** (Production +
+Preview + Development):
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | `postgresql://USER:PASS@ep-xxx.../neondb?sslmode=require` (from step 1) |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(64))"` |
+| `OLLAMA_BASE_URL` | `https://<random>.trycloudflare.com` (from step 2) |
+| `OLLAMA_TIMEOUT_S` | `55` |
+| `BACKEND_CORS_ORIGINS` | your future frontend origin, comma-separated |
+| `RUN_DB_MIGRATIONS` | `1` (turn this **off** after the first successful boot) |
+| `ALLOW_VERCEL_PREVIEWS` | `1` if you want `*.vercel.app` CORS during preview deploys |
+
+Then promote to production:
+
+```bash
+cd backend
+vercel --prod
+```
+
+This redeploys with the env vars set. The first cold-start runs
+`Base.metadata.create_all()`, the idempotent ALTERs, and seeds the
+admin user `admin@novamind.ai / admin123`.
+
+#### 5. Smoke-test the backend
+
+```bash
+curl https://<your-backend>.vercel.app/health
+# → {"status":"ok","db":"ok",...}
+
+curl -X POST https://<your-backend>.vercel.app/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin@novamind.ai","password":"admin123"}' | jq .access_token
+# → a JWT
+```
+
+If `db` is `"down"`, the `DATABASE_URL` is wrong or the Neon project
+is paused (free tier auto-pauses after inactivity — wake it from the
+Neon console).
+
+#### 6. Point the frontend at the real backend
+
+Edit `web/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=https://<your-backend>.vercel.app/api/v1
+NEXT_PUBLIC_USE_MOCK=false
+```
+
+`NEXT_PUBLIC_USE_MOCK=false` is what removes the amber "Demo mode"
+banner — the indigo "Powered by NovaMind local engine" banner appears
+once the backend is reachable.
+
+#### 7. Deploy the frontend
+
+```bash
+cd web
+vercel                                       # first deploy, link to a project
+vercel --prod                                # promote to production
+```
+
+After Vercel assigns your `*.vercel.app` URL, add it to the backend's
+`BACKEND_CORS_ORIGINS` (or rely on `ALLOW_VERCEL_PREVIEWS=1`) and
+redeploy the backend.
+
+#### 8. End-to-end verification
+
+1. Open the deployed frontend URL. You should see the **indigo** banner
+   (not the amber "Demo mode" banner).
+2. Log in as `admin@novamind.ai` / `admin123`.
+3. Send a chat message — the request hits Vercel → backend → cloudflared
+   → Ollama on your server. A real model reply should appear in
+   <60 s (Pro) or fall back to the in-process `NovaMindLocal` engine if
+   the tunnel is down.
+4. From the Vercel dashboard → backend project → Logs, confirm the
+   `novamind` structured logger is emitting `(asctime) (levelname) (name)` lines.
+5. CORS sanity: from the deployed frontend origin, preflight succeeds;
+   from `https://evil.example`, preflight is rejected.
+
+### After the first successful deploy
+
+- Set `RUN_DB_MIGRATIONS=0` on Vercel so cold-starts skip the
+  `create_all()` pass (saves ~1 s of latency on each cold invocation).
+- If you're on Vercel free and 504s appear frequently on chat, the
+  fire-and-forget alternative is in `plans/` — it queues the LLM call
+  and returns 202 immediately, with the frontend polling
+  `GET /chats/{id}/messages` until the AI message arrives.
+
+### Single-VM production via Compose (alternative)
+
+If you'd rather skip serverless and run the whole stack on one VM:
+
+```bash
+cp backend/.env.example backend/.env
+SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(64))") \
+  docker compose up --build -d
+docker compose logs -f backend                   # confirm boot
+curl http://127.0.0.1:8000/health               # {"status":"ok",...}
+```
+
+Optional local LLM (Ollama) for the `/v1/*` OpenAI-compatible surface:
+
+```bash
+docker compose --profile llm up -d
+docker compose exec ollama ollama pull llama3.2:3b
+export OLLAMA_BASE_URL=http://ollama:11434
+```
+
+Production hardening checklist (Compose path):
+
+- [ ] `SECRET_KEY` set to a 64-byte random value
+- [ ] `BACKEND_CORS_ORIGINS` set to your real frontend origin(s)
+- [ ] `ALLOW_VERCEL_PREVIEWS=0` (keep wildcard regex off)
+- [ ] `DATABASE_URL` pointed at Postgres
+- [ ] Behind HTTPS (Caddy / nginx / Cloudflare in front of :8000)
+- [ ] Healthcheck wired to `/health`
 
 ## API Endpoints
 
@@ -171,20 +356,10 @@ npm run dev
 
 ## Deployment
 
-### Kubernetes
-Basic Kubernetes manifests are conceptualized for production deployment:
-- Separate deployments for each service
-- Horizontal pod autoscaling
-- Resource limits and requests
-- ConfigMaps and Secrets for configuration
-- Ingress controller for external access
-
-### Cloud Providers
-Ready for deployment on:
-- AWS (ECS/EKS, RDS, ElastiCache)
-- Azure (AKS, SQL Database, Cosmos DB)
-- GCP (GKE, Cloud SQL, Memorystore)
-- On-premise Kubernetes clusters
+For day-to-day deployment (Vercel + Neon + self-hosted Ollama) see
+**Deployment** above. Kubernetes manifests are conceptual and not yet
+provided — for self-managed multi-node deployments, file an issue with
+your requirements.
 
 ## Security Features
 - JWT-based authentication with expiration
