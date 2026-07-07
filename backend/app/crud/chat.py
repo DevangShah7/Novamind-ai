@@ -50,8 +50,11 @@ def delete_chat(db: Session, chat_id: int):
     return db_chat
 
 def create_message(db: Session, message: MessageCreate, chat_id: int, user_id: int = None):
+    # `model` is a routing hint used by the chat endpoint to pick the
+    # LLM service — it's not a stored column, so we exclude it before
+    # the dict hits the SQLAlchemy `Message(**kwargs)` constructor.
     db_message = Message(
-        **message.dict(exclude={"meta_data"}),
+        **message.dict(exclude={"meta_data", "model"}),
         chat_id=chat_id,
         user_id=user_id,
         meta_data=json.dumps(message.meta_data) if message.meta_data else None

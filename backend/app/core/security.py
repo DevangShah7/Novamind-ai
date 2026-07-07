@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any, Mapping
 import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -21,8 +21,20 @@ def _truncate(password: str) -> str:
     encoded = password.encode("utf-8")
     return encoded[:72].decode("utf-8", errors="ignore")
 
-def create_access_token(data: dict = None, expires_delta: Optional[timedelta] = None, subject: Optional[str] = None):
-    to_encode = dict(data or {})
+def create_access_token(
+    data: Optional[Mapping[str, Any]] = None,
+    expires_delta: Optional[timedelta] = None,
+    subject: Optional[str] = None,
+    extra_claims: Optional[Mapping[str, Any]] = None,
+):
+    """Mint a signed HS256 access token.
+
+    `extra_claims` lets callers add non-standard claims (e.g. `tv` for
+    token-version) without having to know the internal `data` shape.
+    Reserved claim keys (`sub`, `exp`) set via `extra_claims` will be
+    ignored — `subject` and `expires_delta` are the supported paths.
+    """
+    to_encode: dict = dict(data or {})
     if subject is not None and "sub" not in to_encode:
         to_encode["sub"] = subject
     if expires_delta:
@@ -30,6 +42,11 @@ def create_access_token(data: dict = None, expires_delta: Optional[timedelta] = 
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
+    if extra_claims:
+        for k, v in extra_claims.items():
+            if k in ("sub", "exp"):
+                continue  # never let callers override these
+            to_encode[k] = v
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
     return encoded_jwt
 

@@ -54,16 +54,24 @@ export const register = async (email: string, password: string): Promise<Token> 
 
 export const login = async (email: string, password: string): Promise<Token> => {
   if (USE_MOCK) return mock.mockLogin(email, password);
+  // FastAPI's OAuth2PasswordRequestForm expects form-urlencoded with a
+  // `username` field (the email) and `password`. Sending JSON yields 422.
+  const body = new URLSearchParams({ username: email, password });
   const res = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: JSON.stringify({ email, password }),
+    body,
   });
   if (!res.ok) {
     const error = await res.json();
-    throw new Error(error.detail || 'Login failed');
+    // FastAPI returns `detail` as either a string (bad password) or a
+    // list of validation errors (422). Normalize to a flat string.
+    const msg = Array.isArray(error.detail)
+      ? error.detail.map((d: any) => d.msg).join('; ')
+      : error.detail || 'Login failed';
+    throw new Error(msg);
   }
   return res.json();
 };

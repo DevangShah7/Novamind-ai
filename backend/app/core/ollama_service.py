@@ -106,11 +106,24 @@ class OllamaChatService(BaseLLMService):
             # user a fake "AI" answer when Ollama is actually unreachable).
             raise
         except Exception as e:
-            logger.warning("Ollama call failed (%s) — falling back to NovaMindLocal", e)
+            logger.warning(
+                "Ollama call failed (%s) — falling back to NovaMindLocal", e
+            )
             from .local_engine import NovaMindLocal
-            return await NovaMindLocal().generate_response(
+            local_resp = await NovaMindLocal().generate_response(
                 messages, temperature=temperature, max_tokens=max_tokens, **kwargs
             )
+            # Re-stamp metadata so callers can tell "asked Ollama, got local"
+            # from "asked local directly". The user still gets a sensible
+            # answer, but the engine name in the response reveals the
+            # degradation so /health and the UI can surface it.
+            local_resp.metadata = {
+                **(local_resp.metadata or {}),
+                "engine": "local_fallback",
+                "fallback_reason": f"ollama_error: {type(e).__name__}: {e}",
+                "requested_model": self.model_name,
+            }
+            return local_resp
 
         elapsed_ms = int((time.time() - t0) * 1000)
         try:

@@ -37,5 +37,63 @@ class User(Base):
     # Chats
     chats = relationship("Chat", back_populates="user", cascade="all, delete-orphan")
 
+    # ---------- Email verification ----------
+    # `email_verification_token` is a URL-safe random string, set on
+    # register, cleared when the user clicks the link. `expires` is a
+    # 24h window from issue time. Both are nullable because OAuth users
+    # are marked verified at creation and never see this flow.
+    email_verification_token = Column(String, unique=True, index=True, nullable=True)
+    email_verification_expires = Column(DateTime(timezone=True), nullable=True)
+
+    # ---------- Password reset ----------
+    # Same shape as verification: a one-shot token with a 1h expiry.
+    password_reset_token = Column(String, unique=True, index=True, nullable=True)
+    password_reset_expires = Column(DateTime(timezone=True), nullable=True)
+
+    # ---------- Brute-force protection ----------
+    # Incremented on every failed login. Lockout (15 min) triggers when
+    # the count crosses 5 within a 15-min sliding window. `lockout_until`
+    # is set when the threshold is hit; cleared on next successful login.
+    failed_login_count = Column(Integer, default=0, nullable=False)
+    lockout_until = Column(DateTime(timezone=True), nullable=True)
+
+    # ---------- Token versioning (forced logout / change-password) ----------
+    # Bumped on logout and password change. Every JWT carries a `tv`
+    # claim; `get_current_user` rejects tokens whose `tv` doesn't match
+    # the current `token_version`. So calling /auth/logout (or rotating
+    # the password) invalidates every other active JWT for the user
+    # without needing a server-side token store.
+    token_version = Column(Integer, default=0, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+def ensure_user_columns(engine) -> None:
+    """Idempotent ALTER TABLE for the new auth-flow columns.
+
+    Mirrors `ensure_api_key_columns`: try each ADD COLUMN, swallow the
+    duplicate-column error so re-runs are safe. New columns are
+    nullable or have defaults, so existing rows survive the migration
+    without backfill. Production deployments on Postgres should
+    eventually use Alembic; this helper keeps local dev working.
+    """
+    from sqlalchemy import text
+
+    new_cols = [
+        ("email_verification_token", "VARCHAR"),
+        ("email_verification_expires", "TIMESTAMP"),
+        ("password_reset_token", "VARCHAR"),
+        ("password_reset_expires", "TIMESTAMP"),
+        ("failed_login_count", "INTEGER DEFAULT 0 NOT NULL"),
+        ("lockout_until", "TIMESTAMP"),
+        ("token_version", "INTEGER DEFAULT 0 NOT NULL"),
+    ]
+    with engine.begin() as conn:
+        for name, decl in new_cols:
+            try:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {decl}"))
+            except Exception:
+                # Column already exists, or backend doesn't support the
+                # ALTER. Either way: move on.
+                pass

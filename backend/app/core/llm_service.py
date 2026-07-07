@@ -681,7 +681,7 @@ To use your actual LLM model:
 
 
 # Factory function to get LLM service instance
-def get_llm_service(model_variant: str = "local") -> BaseLLMService:
+def get_llm_service(model_variant: str = "local", model_name: Optional[str] = None) -> BaseLLMService:
     """
     Factory function to get the LLM service instance.
     Users can specify which NeuraX variant to use, or provide their own implementation.
@@ -695,6 +695,13 @@ def get_llm_service(model_variant: str = "local") -> BaseLLMService:
                        "base", "code", "creative", "analysis" (legacy
                        NeuraX template variants) and "custom" (placeholder
                        for users to swap in a foundation-model backend).
+        model_name: Pin a specific Ollama model (e.g. ``"qwen2.5-coder:14b"``).
+                    When set, the factory returns an ``OllamaChatService`` with
+                    that exact model — but only if Ollama is reachable. If
+                    Ollama is down, the call still falls back to NovaMindLocal
+                    inside ``OllamaChatService.generate_response`` (with
+                    ``engine: "local_fallback"`` in the metadata). The
+                    legacy NeuraX variants ignore this argument.
 
     Returns:
         BaseLLMService: An instance of the LLM service to use
@@ -704,6 +711,18 @@ def get_llm_service(model_variant: str = "local") -> BaseLLMService:
     from .local_engine import NovaMindLocal
     from .ollama_service import OllamaChatService, ollama_reachable, select_default_ollama_model
     import os
+
+    # When the caller pins a specific Ollama model name, route through
+    # Ollama regardless of variant. The Ollama service itself does the
+    # unreachable-fallback to NovaMindLocal so the caller always gets a
+    # LLMResponse back (with engine="local_fallback" in metadata).
+    if model_name:
+        if ollama_reachable():
+            return OllamaChatService(model_name=model_name)
+        # Ollama down + caller wants a specific model: still try Ollama
+        # (the call will fall back internally). We don't pick a different
+        # model silently because the user asked for this one.
+        return OllamaChatService(model_name=model_name)
 
     # When the caller doesn't pin a specific variant, prefer Ollama if it's
     # reachable so the in-app chat ("AI working properly") actually uses a

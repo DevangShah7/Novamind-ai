@@ -19,7 +19,12 @@ class MessageBase(BaseModel):
     meta_data: Optional[Any] = None
 
 class MessageCreate(MessageBase):
-    pass
+    # Optional model name. When set, the chat endpoint routes the
+    # request through `OllamaChatService(model_name=<value>)` if Ollama
+    # is reachable; otherwise through `NovaMindLocal` (with the name
+    # stored on the AI message metadata for traceability). When None,
+    # the configured `DEFAULT_MODEL` is used.
+    model: Optional[str] = None
 
 class Message(MessageBase):
     id: int

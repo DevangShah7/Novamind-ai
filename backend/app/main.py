@@ -27,11 +27,15 @@ def _bootstrap_database() -> None:
     """
     from app.core.database import Base, engine, SessionLocal
     from app.models.api_key import ensure_api_key_columns
+    from app.models.user import ensure_user_columns
 
     logger.info("Running Base.metadata.create_all()")
     Base.metadata.create_all(bind=engine)
     # Idempotent ALTER for developer-platform columns added 2026-06.
     ensure_api_key_columns(engine)
+    # Idempotent ALTER for the new email-verification, password-reset,
+    # lockout, and token-version columns added 2026-07.
+    ensure_user_columns(engine)
 
     # Seed initial admin only when the users table is empty. Cheap COUNT(*) so
     # we never reseed on a warm restart.
@@ -189,7 +193,55 @@ def health():
     payload = {"status": status, "version": settings.VERSION, "db": "ok" if db_ok else "down"}
     if db_error and not db_ok:
         payload["db_error"] = db_error
+    # Engine health — distinct from "backend up" because Ollama can be
+    # down while the backend still serves traffic (it just falls back
+    # to NovaMindLocal). The UI surfaces this in the model picker.
+    try:
+        from app.core.ollama_service import ollama_reachable
+        payload["engines"] = {
+            "ollama": "up" if ollama_reachable() else "down",
+            "local": "up",
+        }
+    except Exception as exc:  # pragma: no cover - operational
+        payload["engines"] = {"ollama": "unknown", "local": "up", "error": str(exc)}
     return payload
+
+
+@app.get("/ready")
+def ready():
+    """Readiness probe — returns 200 only when the backend AND at least
+    one LLM engine are reachable. For Railway / Render / k8s healthcheck
+    targets that should gate traffic on engine availability, not just
+    process liveness.
+
+    NovaMindLocal is always available (in-process), so readiness
+    collapses to "DB reachable" in practice — but we still probe
+    Ollama so operators can see engine status in the 200 payload.
+    """
+    db_ok = True
+    try:
+        from sqlalchemy import text
+        from app.core.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception:
+        db_ok = False
+    ollama_up = False
+    try:
+        from app.core.ollama_service import ollama_reachable
+        ollama_up = ollama_reachable()
+    except Exception:
+        pass
+    if db_ok:
+        return {"ready": True, "db": "ok", "ollama": "up" if ollama_up else "down", "local": "up"}
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=503,
+        detail={"ready": False, "db": "down", "ollama": "up" if ollama_up else "down"},
+    )
 
 
 # Vercel serverless entrypoint. Mangum wraps our ASGI app into the AWS

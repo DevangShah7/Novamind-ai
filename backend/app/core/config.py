@@ -13,6 +13,8 @@ except ImportError:
             "available. Run `pip install pydantic-settings>=2`."
         ) from exc
 
+from pydantic import ConfigDict
+
 import os
 
 
@@ -23,8 +25,39 @@ class Settings(BaseSettings):
 
     # SECURITY: override this in production via the SECRET_KEY env var.
     # A placeholder is shipped so `uvicorn app.main:app` boots in dev.
+    # In production, leaving this default is a startup error unless
+    # `ALLOW_DEV_SECRET_KEY=1` is set explicitly. See
+    # `_enforce_production_secret_key()` below.
     SECRET_KEY: str = "dev-only-change-me-in-production-9f8e7d6c5b4a3210"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    # Set to "1" to bypass the production SECRET_KEY guard. Use only
+    # for local dev; do NOT set this in any deployed environment.
+    ALLOW_DEV_SECRET_KEY: bool = False
+
+    # ---------- Email / SMTP ----------
+    # When SMTP_HOST is empty, the mailer falls back to a dev stub that
+    # writes sent messages to `logs/dev-mail.log` so verification / reset
+    # URLs are visible to the developer. Set all of these in `.env` to
+    # send real mail from a deployment.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_TLS: bool = True
+    SMTP_FROM: str = "noreply@novamind.ai"
+    SMTP_FROM_NAME: str = "NovaMind"
+
+    # ---------- AI models ----------
+    # The default Ollama model to use for chat when the user doesn't
+    # pick one. List others via `GET /api/v1/models`.
+    DEFAULT_MODEL: str = "llama3.2:3b"
+
+    # ---------- Frontend (for email link generation) ----------
+    # Where the email verification / password reset links point.
+    # Defaults to localhost for dev; set this to your deployed
+    # Vercel URL (or tunnel URL) in production so the links work
+    # end-to-end.
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
 
     # SQLite is the default for free-tier single-user deployments.
     # Switch to a postgresql:// URL when you have Postgres available.
@@ -72,8 +105,67 @@ class Settings(BaseSettings):
     # letting the platform hard-cut the request at its own (lower) limit.
     OLLAMA_TIMEOUT_S: float = 55.0
 
-    class Config:
-        case_sensitive = True
+    # Ollama base URL — where the backend dispatches chat completions.
+    # Default to localhost; override in `.env` when Ollama runs on a
+    # different host (a managed backend points this at a remote Ollama
+    # service, e.g. http://ollama.internal:11434 or a paid inference API).
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    # pydantic-settings v2 reads .env from `model_config`, not the
+    # legacy `class Config:` block (which only worked in pydantic v1).
+    # We point at `.env` in the cwd so a `python -m uvicorn app.main:app`
+    # invocation picks it up. Pydantic ignores missing files, so the
+    # defaults still apply if `.env` doesn't exist. `extra="ignore"`
+    # keeps the boot forgiving if `.env` contains keys we haven't
+    # modeled yet (e.g. ALLOW_VERCEL_PREVIEWS being added without a
+    # matching Settings field).
+    model_config = ConfigDict(
+        case_sensitive=True,
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+# Known placeholder keys. Keeping the list here (not in the model body)
+# makes the production guard self-documenting.
+_PLACEHOLDER_SECRET_KEYS = {
+    "dev-only-change-me-in-production-9f8e7d6c5b4a3210",
+    "your-secret-key-here",
+    "",
+}
+
+
+def _enforce_production_secret_key(s: "Settings") -> None:
+    """Refuse to boot with a placeholder SECRET_KEY in production.
+
+    The check is intentionally conservative: a placeholder key only
+    blocks startup when BOTH `RUN_DB_MIGRATIONS` is true AND
+    `ALLOW_DEV_SECRET_KEY` is not set. That keeps the developer
+    experience (run uvicorn, get a working app) intact while making
+    a real prod deploy require either a real key or an explicit
+    acknowledgement via the env var.
+    """
+    if s.SECRET_KEY in _PLACEHOLDER_SECRET_KEYS:
+        # Dev escape hatch: when explicitly allowed, print a one-time
+        # warning so a misconfigured prod is still visible in logs.
+        if s.ALLOW_DEV_SECRET_KEY:
+            import warnings
+            warnings.warn(
+                "ALLOW_DEV_SECRET_KEY is set and SECRET_KEY is a "
+                "placeholder. This is unsafe for production.",
+                RuntimeWarning,
+            )
+            return
+        if s.RUN_DB_MIGRATIONS:
+            raise RuntimeError(
+                "Refusing to start: SECRET_KEY is a placeholder. "
+                "Set a real value in .env, or set ALLOW_DEV_SECRET_KEY=1 "
+                "for local dev only."
+            )
+
+
+_enforce_production_secret_key(Settings())
 
 
 settings = Settings()

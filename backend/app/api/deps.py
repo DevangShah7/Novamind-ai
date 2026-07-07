@@ -75,6 +75,15 @@ def get_current_user(
     user = get_user_by_email(db, email=token_data.email)
     if user is None:
         raise credentials_exception
+    # Token-version check. Logout and password change both bump
+    # `token_version`; any JWT whose `tv` claim doesn't match the
+    # current value is treated as expired. We skip the check on users
+    # that don't have the column (i.e. older DBs before the migration
+    # helper has run) so a fresh boot never accidentally 401s everyone.
+    jwt_tv = payload.get("tv")
+    user_tv = getattr(user, "token_version", None)
+    if user_tv is not None and jwt_tv is not None and int(jwt_tv) != int(user_tv):
+        raise credentials_exception
     return user
 
 def get_current_active_user(

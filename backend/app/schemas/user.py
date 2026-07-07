@@ -1,6 +1,31 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import re
+
+# Password rules — keep this in sync with the dev mailer copy and the
+# frontend password strength meter. Pydantic 1.10's `min_length` only
+# checks length; the validator enforces the composition rule.
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+_PASSWORD_COMPOSITION = re.compile(r"^(?=.*[A-Za-z])(?=.*\d).+$")
+
+
+def _validate_password(value: str) -> str:
+    if len(value) < PASSWORD_MIN_LENGTH:
+        raise ValueError(
+            f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
+        )
+    if len(value) > PASSWORD_MAX_LENGTH:
+        raise ValueError(
+            f"Password must be at most {PASSWORD_MAX_LENGTH} characters"
+        )
+    if not _PASSWORD_COMPOSITION.match(value):
+        raise ValueError(
+            "Password must contain at least one letter and one digit"
+        )
+    return value
+
 
 class UserBase(BaseModel):
     email: Optional[EmailStr] = None
@@ -18,6 +43,48 @@ class UserCreate(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     is_admin: bool = False
+
+    @validator("password", always=True)
+    def _password_rules(cls, v: str) -> str:
+        return _validate_password(v)
+
+    @validator("password", always=True)
+    def _password_not_email_local_part(cls, v: str, values: Dict[str, Any]) -> str:
+        # Reject "password == user@gmail.com" style trivially guessable
+        # passwords. Only checked when email is present.
+        email = values.get("email")
+        if email and isinstance(email, str) and v.lower() == email.lower():
+            raise ValueError("Password must not match your email")
+        return v
+
+
+class ResendVerificationRequest(BaseModel):
+    """Empty body — the email is read from the authenticated user."""
+    pass
+
+
+class EmailVerifyRequest(BaseModel):
+    token: str = Field(..., min_length=8, max_length=512)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=8, max_length=512)
+    new_password: str
+
+    @validator("new_password", always=True)
+    def _new_password_rules(cls, v: str) -> str:
+        return _validate_password(v)
+
+
+class MessageResponse(BaseModel):
+    """Generic success envelope used by /verify-email, /forgot-password,
+    /reset-password, /logout, etc."""
+    message: str
+
 
 class GoogleAuthRequest(BaseModel):
     token: str  # Google ID token
