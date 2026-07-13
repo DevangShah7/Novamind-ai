@@ -3,15 +3,23 @@ import { useRouter } from 'next/router';
 import { getUsers } from '../../lib/admin';
 import { useAuth } from '../../lib/auth';
 import { User } from '../../types';
+import AppShell from '../../components/AppShell';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { toast } from '../../components/ui/Toaster';
+import { Users as UsersIcon } from 'lucide-react';
 
 export default function UsersPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     loadUsers();
   }, []);
 
@@ -27,126 +35,125 @@ export default function UsersPage() {
       const usersData = await getUsers();
       setUsers(usersData);
     } catch (err) {
-      setError('Failed to fetch users: ' + (err instanceof Error ? err.message : String(err)));
+      const msg =
+        'Failed to fetch users: ' + (err instanceof Error ? err.message : String(err));
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
+  if (!mounted) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4"></div>
-        <p className="text-sm text-gray-500">Loading users...</p>
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <Skeleton className="mb-6 h-10 w-64" />
+        <Skeleton className="h-96 w-full rounded-xl" />
       </div>
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow-md p-6 text-center max-w-xl">
-          <h2 className="text-xl font-bold text-red-600 mb-4">Error</h2>
-          <p className="text-gray-600">{error}</p>
-          <button
-            onClick={loadUsers}
-            className="mt-4 px-4 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
+  if (!user) {
+    return null;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Users Management</h1>
-          <div className="flex items-center space-x-3">
-            {/* In a real app, this would navigate to a create user form */}
-            <button
-              onClick={() => {
-                // Placeholder for create user functionality
-                alert('Create user functionality would go here');
-              }}
-              className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700"
-            >
-              New User
-            </button>
+    <AppShell>
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <UsersIcon className="h-5 w-5 text-primary" />
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">Users Management</h1>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {users.length} {users.length === 1 ? 'user' : 'users'} in the system
+            </p>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => toast.info('Create user coming soon')}
+          >
+            New user
+          </Button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
-            <p className="text-red-700">{error}</p>
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+            {error}
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">User List ({users.length})</h2>
-          </div>
-          <div className="divide-y divide-gray-200">
-            {users.length === 0 ? (
-              <div className="py-8 text-center text-gray-500">
-                <p>No users found.</p>
+        <Card>
+          <CardHeader>
+            <CardTitle>User list ({users.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="space-y-2 p-6">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-56" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : users.length === 0 ? (
+              <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+                No users found.
               </div>
             ) : (
-              users.map((user) => (
-                <div key={user.id} className="px-6 py-4 flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    {/* Avatar or initials */}
-                    <div className="h-10 w-10 flex items-center justify-center bg-gray-200 rounded-full">
-                      {user.full_name ? user.full_name.charAt(0).toUpperCase() : 'U'}
+              <div className="divide-y divide-border">
+                {users.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between px-6 py-4">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
+                        {u.full_name ? u.full_name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {u.full_name || u.username || 'Unnamed user'}
+                        </h3>
+                        <p className="text-xs text-muted-foreground">{u.email || 'No email'}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900">
-                        {user.full_name || user.username || 'Unnamed User'}
-                      </h3>
-                      <p className="text-sm text-gray-500">
-                        {user.email || 'No email'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-4 text-sm">
-                    <span className={user.is_active ? 'text-green-500' : 'text-gray-400'}>
-                      {user.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                    <span className={user.is_verified ? 'text-blue-500' : 'text-gray-400'}>
-                      {user.is_verified ? 'Verified' : 'Unverified'}
-                    </span>
-                    {/* In a real app, these would be buttons/link to edit/delete */}
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => {
-                          // Placeholder for edit functionality
-                          alert(`Edit user ${user.id}`);
-                        }}
-                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                    <div className="flex items-center gap-3 text-xs">
+                      <span
+                        className={
+                          u.is_active
+                            ? 'rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400'
+                            : 'rounded-full bg-muted px-2 py-0.5 text-muted-foreground'
+                        }
+                      >
+                        {u.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                      <span
+                        className={
+                          u.is_verified
+                            ? 'rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-600 dark:text-blue-400'
+                            : 'rounded-full bg-muted px-2 py-0.5 text-muted-foreground'
+                        }
+                      >
+                        {u.is_verified ? 'Verified' : 'Unverified'}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => toast.info(`Edit user ${u.id} coming soon`)}
                       >
                         Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Placeholder for delete functionality
-                          if (confirm(`Delete user ${user.full_name || user.username}?`)) {
-                            alert(`Delete user ${user.id} functionality would go here`);
-                          }
-                        }}
-                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
-                      >
-                        Delete
-                      </button>
+                      </Button>
                     </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
-    </div>
+    </AppShell>
   );
 }

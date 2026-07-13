@@ -4,6 +4,11 @@ import { getApiKeys, getSystemStats } from '../../lib/admin';
 import { useAuth } from '../../lib/auth';
 import StatsCard from '../../components/admin/StatsCard';
 import ApiKeyList from '../../components/admin/ApiKeyList';
+import AppShell from '../../components/AppShell';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/Card';
+import { toast } from '../../components/ui/Toaster';
+import { Shield } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -16,9 +21,11 @@ export default function AdminDashboard() {
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     loadData();
   }, []);
 
@@ -29,6 +36,7 @@ export default function AdminDashboard() {
     }
 
     setLoading(true);
+    setError('');
     try {
       const [statsData, apiKeysData] = await Promise.all([
         getSystemStats(),
@@ -36,68 +44,86 @@ export default function AdminDashboard() {
       ]);
       setStats(statsData);
       setApiKeys(apiKeysData);
-    } catch (err) {
-      setError('Failed to load admin dashboard data');
+    } catch (err: any) {
+      const msg = 'Failed to load admin dashboard data';
+      setError(msg);
+      toast.error(msg);
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
+  if (!mounted) {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <Skeleton className="mb-6 h-10 w-64" />
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
+
   if (!user) {
     return null; // Redirect handled in useEffect
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-red-500 text-center">{error}</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="pb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Welcome back, {user.full_name || user.email}
-          </p>
+    <AppShell>
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <div className="mb-6 flex items-center gap-2">
+          <Shield className="h-5 w-5 text-primary" />
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Dashboard</h1>
         </div>
+        <p className="mb-6 text-sm text-muted-foreground">
+          Welcome back, {user.full_name || user.email}
+        </p>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+            {error}
+          </div>
+        )}
 
         {/* Stats Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
-          <StatsCard title="Total Users" value={stats.total_users || 0} />
-          <StatsCard title="Admin Users" value={stats.admin_users || 0} />
-          <StatsCard title="Active Users" value={stats.active_users || 0} />
-          <StatsCard title="API Keys" value={stats.api_keys || 0} />
-        </div>
+        {loading ? (
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-xl" />
+            ))}
+          </div>
+        ) : (
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatsCard title="Total Users" value={stats.total_users || 0} />
+            <StatsCard title="Admin Users" value={stats.admin_users || 0} />
+            <StatsCard title="Active Users" value={stats.active_users || 0} />
+            <StatsCard title="API Keys" value={stats.api_keys || 0} />
+          </div>
+        )}
 
         {/* API Keys Section */}
-        <div className="bg-white shadow rounded-lg divide-y divide-gray-200">
-          <div className="px-4 py-5 sm:px-6">
-            <h3 className="text-lg font-medium text-gray-900">
-              API Keys
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Manage API keys for programmatic access
-            </p>
-          </div>
-          <div className="py-3">
-            <ApiKeyList apiKeys={apiKeys} onRefresh={loadData} />
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>API Keys</CardTitle>
+            <CardDescription>Manage API keys for programmatic access</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="space-y-2 p-6">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : (
+              <ApiKeyList apiKeys={apiKeys} onRefresh={loadData} />
+            )}
+          </CardContent>
+        </Card>
       </div>
-    </div>
+    </AppShell>
   );
 }

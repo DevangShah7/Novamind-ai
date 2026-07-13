@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import AppShell, { SidebarChatList } from '../components/AppShell';
 import { useAuth } from '../lib/auth';
-import { BookOpen, ExternalLink, Code2, ShieldCheck, Zap, ArrowRight } from 'lucide-react';
+import { BookOpen, ExternalLink, Code2, ShieldCheck, Zap, ArrowRight, Copy, Check } from 'lucide-react';
+import { toast } from '../components/ui/Toaster';
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1$/, '') ||
@@ -136,13 +137,9 @@ export default function DocsPage() {
 
         {/* cURL / Python snippets */}
         <section className="mb-10 grid gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <Code2 className="h-4 w-4 text-primary" />
-              <h3 className="text-base font-semibold text-foreground">cURL</h3>
-            </div>
-            <pre className="overflow-x-auto rounded-lg bg-zinc-950 px-4 py-3 text-xs leading-relaxed text-zinc-100">
-{`# 1. Create a key (JWT in $TOKEN)
+          <CodeBlock
+            title="cURL"
+            code={`# 1. Create a key (JWT in $TOKEN)
 curl -X POST ${BACKEND_URL}/api/v1/api-keys/ \\
   -H "Authorization: Bearer $TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -156,15 +153,10 @@ curl ${BACKEND_URL}/v1/chat/completions \\
     "model": "NovaMind-local-v1",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'`}
-            </pre>
-          </div>
-          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <Code2 className="h-4 w-4 text-primary" />
-              <h3 className="text-base font-semibold text-foreground">OpenAI SDK</h3>
-            </div>
-            <pre className="overflow-x-auto rounded-lg bg-zinc-950 px-4 py-3 text-xs leading-relaxed text-zinc-100">
-{`from openai import OpenAI
+          />
+          <CodeBlock
+            title="OpenAI SDK"
+            code={`from openai import OpenAI
 
 client = OpenAI(
     api_key="nm_...",          # your NovaMind key
@@ -178,8 +170,7 @@ resp = client.chat.completions.create(
 
 print(resp.choices[0].message.content)
 print(resp.usage.total_tokens)`}
-            </pre>
-          </div>
+          />
         </section>
 
         {/* Swagger UI iframe */}
@@ -265,5 +256,54 @@ function MethodBadge({ method }: { method: string }) {
     >
       {method}
     </span>
+  );
+}
+
+/**
+ * Code block with a "Copy" button in the header. Clicking copies the
+ * exact code to the clipboard and surfaces a toast confirmation.
+ */
+function CodeBlock({ title, code }: { title: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      toast.success(`${title} copied to clipboard`);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error('Could not copy to clipboard');
+    }
+  }
+  return (
+    <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex items-center gap-2">
+          <Code2 className="h-4 w-4 text-primary" />
+          <h3 className="text-base font-semibold text-foreground">{title}</h3>
+        </div>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={`Copy ${title} snippet`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-500" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" />
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto rounded-b-xl bg-zinc-950 px-4 py-3 text-xs leading-relaxed text-zinc-100">
+        {code}
+      </pre>
+    </div>
   );
 }

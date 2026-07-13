@@ -6,6 +6,8 @@ import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message, asMeta } from '../../types';
 import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2 } from 'lucide-react';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { toast } from '../../components/ui/Toaster';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -98,6 +100,7 @@ export default function ChatPage() {
       setIsTyping(false);
     } catch (err: any) {
       setError(err?.message || 'Failed to send message');
+      toast.error(err?.message || 'Failed to send message');
       console.error(err);
       setLoading(false);
       setIsTyping(false);
@@ -109,17 +112,42 @@ export default function ChatPage() {
       await navigator.clipboard.writeText(msg.content);
       setCopiedId(msg.id);
       setTimeout(() => setCopiedId(null), 1500);
+      toast.success('Copied to clipboard');
     } catch (err) {
       console.error('Copy failed', err);
+      toast.error('Could not copy to clipboard');
     }
   };
 
   if (!mounted) {
-    // SSR + first client paint: render a loading state. We can't decide
+    // SSR + first client paint: render a skeleton shell. We can't decide
     // whether to redirect to /login until the auth context has hydrated.
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="flex h-screen flex-col bg-background text-foreground">
+        <div className="flex-shrink-0 border-b border-border bg-card/80 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        </div>
+        <div className="mx-auto w-full max-w-3xl flex-1 space-y-6 px-4 py-8 sm:px-6">
+          <div className="flex items-start gap-3">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-72" />
+              <Skeleton className="h-4 w-56" />
+            </div>
+          </div>
+          <div className="flex items-start gap-3 flex-row-reverse">
+            <Skeleton className="h-9 w-9 rounded-lg" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-40" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

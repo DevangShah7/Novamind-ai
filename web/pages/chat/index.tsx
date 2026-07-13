@@ -5,6 +5,8 @@ import ChatList from '../../components/ChatList';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2 } from 'lucide-react';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { toast } from '../../components/ui/Toaster';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -51,19 +53,26 @@ export default function ChatListPage() {
       setTitle('');
       router.push(`/chat/${newChat.id}`);
     } catch (err: any) {
-      setError(err?.message || 'Failed to create chat');
+      const msg = err?.message || 'Failed to create chat';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   if (!mounted) {
-    // SSR + first client paint: render a lightweight skeleton. This
-    // also runs while the auth context is still hydrating, so we can't
-    // decide whether to redirect yet — that's why we wait for `mounted`.
+    // SSR + first client paint: render a skeleton shell while the auth
+    // context hydrates — same shape as the real page so the transition
+    // is seamless.
     return (
-      <div className="flex h-screen items-center justify-center bg-background text-foreground">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        <Skeleton className="h-48 w-full rounded-2xl" />
+        <div className="mt-10 space-y-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
       </div>
     );
   }

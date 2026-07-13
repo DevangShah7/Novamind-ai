@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ApiKey } from '../../types';
 import Link from 'next/link';
-import Button from '../ui/Button';
+import { Button } from '../ui/Button';
 
 interface ApiKeyListProps {
   apiKeys: ApiKey[];

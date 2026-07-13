@@ -32,6 +32,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
+import { Skeleton } from '../../components/ui/Skeleton';
 
 const V1_BASE_URL =
   process.env.NEXT_PUBLIC_V1_URL || 'http://localhost:8000/v1';
@@ -324,8 +325,21 @@ export default function DeveloperPortal() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="divide-y divide-border">
+              {[0, 1].map((i) => (
+                <div key={i} className="flex items-start gap-4 px-6 py-4">
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                  <div className="flex gap-1">
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : keys.length === 0 ? (
             <div className="px-6 py-16 text-center">
