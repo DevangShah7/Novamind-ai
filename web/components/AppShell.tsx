@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useAuth } from '../lib/auth';
 import { logout } from '../lib/api';
-import { Brain, LogOut, MessageSquarePlus, ChevronDown, User as UserIcon, Sparkles, Key } from 'lucide-react';
+import { getMyPlan, type PlanInfo } from '../lib/billing';
+import { Brain, LogOut, MessageSquarePlus, ChevronDown, User as UserIcon, Sparkles, Key, CreditCard } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
+import { Badge } from './ui/Badge';
 
 interface AppShellProps {
   children: ReactNode;
@@ -19,6 +21,40 @@ function getInitials(name: string | null | undefined, email: string | null | und
   const parts = src.split(/\s+|@/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return src.slice(0, 2).toUpperCase();
+}
+
+/**
+ * Plan chip shown next to the user avatar. Pulls the plan from
+ * `/api/v1/billing/plan` and updates when the user upgrades. In
+ * mock mode this is always "Free".
+ */
+function PlanBadge() {
+  const [plan, setPlan] = useState<PlanInfo | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getMyPlan()
+      .then((p) => {
+        if (!cancelled) setPlan(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!plan) return null;
+  const variant =
+    plan.slug === 'pro'
+      ? 'default'
+      : plan.slug === 'business'
+      ? 'success'
+      : 'secondary';
+  return (
+    <Badge variant={variant as any} className="hidden sm:inline-flex">
+      {plan.name}
+    </Badge>
+  );
 }
 
 export default function AppShell({ children, sidebar }: AppShellProps) {
@@ -60,6 +96,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
           </Link>
 
           <div className="flex items-center gap-2">
+            <PlanBadge />
             <button
               type="button"
               onClick={() => router.push('/chat')}
@@ -110,6 +147,14 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     >
                       <Key className="h-4 w-4" />
                       Developer Portal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); router.push('/billing'); }}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      Billing &amp; plan
                     </button>
                     <button
                       type="button"

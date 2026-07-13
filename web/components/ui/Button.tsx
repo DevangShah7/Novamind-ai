@@ -1,56 +1,57 @@
-import { FC } from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
+import { Slot } from '@radix-ui/react-slot';
+import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { cn } from '../../lib/cn';
 
-interface ButtonProps {
-  variant?: 'default' | 'outline' | 'secondary';
-  size?: 'default' | 'sm' | 'lg';
-  children: React.ReactNode;
-  onClick: () => void;
-  type?: 'button' | 'submit' | 'reset';
-  disabled?: boolean;
-  className?: string;
+const buttonVariants = cva(
+  'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+  {
+    variants: {
+      variant: {
+        default:
+          'gradient-bg text-white shadow-sm hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]',
+        destructive:
+          'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
+        outline:
+          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
+        secondary:
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
+        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        link: 'text-primary underline-offset-4 hover:underline',
+      },
+      size: {
+        default: 'h-10 px-4 py-2 text-sm',
+        sm: 'h-9 px-3 text-xs',
+        lg: 'h-11 px-8 text-base',
+        icon: 'h-10 w-10',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      size: 'default',
+    },
+  }
+);
+
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  /** Render as a child (e.g. <Link>) instead of a real <button>. */
+  asChild?: boolean;
 }
 
-const Button: FC<ButtonProps> = ({
-  variant = 'default',
-  size = 'default',
-  children,
-  onClick,
-  type = 'button',
-  disabled = false,
-  className = '',
-}) => {
-  // Base classes
-  const baseClasses = 'font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2';
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : 'button';
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = 'Button';
 
-  // Variant classes
-  const variantClasses = {
-    default: 'bg-indigo-600 text-white hover:bg-indigo-700',
-    outline: 'border border-gray-300 bg-white hover:bg-gray-50',
-    secondary: 'bg-gray-200 text-gray-800 hover:bg-gray-300',
-  }[variant];
-
-  // Size classes
-  const sizeClasses = {
-    sm: 'px-3 py-2 text-sm',
-    default: 'px-4 py-2',
-    lg: 'px-6 py-3 text-lg',
-  }[size];
-
-  // Disabled classes
-  const disabledClasses = disabled
-    ? 'opacity-50 cursor-not-allowed'
-    : '';
-
-  return (
-    <button
-      type={type}
-      onClick={disabled ? () => {} : onClick}
-      disabled={disabled}
-      className={`${baseClasses} ${variantClasses} ${sizeClasses} ${disabledClasses} ${className}`}
-    >
-      {children}
-    </button>
-  );
-};
-
-export default Button;
+export { Button, buttonVariants };
