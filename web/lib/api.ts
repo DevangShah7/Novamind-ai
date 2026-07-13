@@ -1,4 +1,4 @@
-import { User, Token, Chat, Message } from '../types';
+import { User, Token, RegisterResult, Chat, Message } from '../types';
 import * as mock from './mockBackend';
 
 // Re-export so the UI can use a single import path for the demo creds.
@@ -36,7 +36,10 @@ if (typeof window !== 'undefined' && USE_MOCK) {
   }
 }
 
-export const register = async (email: string, password: string): Promise<Token> => {
+export const register = async (
+  email: string,
+  password: string
+): Promise<RegisterResult> => {
   if (USE_MOCK) return mock.mockRegister(email, password);
   const res = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
@@ -49,7 +52,86 @@ export const register = async (email: string, password: string): Promise<Token> 
     const error = await res.json();
     throw new Error(error.detail || 'Registration failed');
   }
-  return res.json();
+  // The backend now returns 202 + `MessageResponse` and emails a
+  // verification link. The client UI shows "check your inbox"; the
+  // user is NOT logged in until they click the link and call
+  // /auth/verify-email (which redirects them to /login?registered=1).
+  return { requiresVerification: true, email };
+};
+
+/**
+ * Verify a user's email using the token from the verification link.
+ * Returns true on success, throws on failure (expired / unknown token).
+ */
+export const verifyEmail = async (token: string): Promise<boolean> => {
+  if (USE_MOCK) return true;
+  const res = await fetch(`${API_URL}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Email verification failed');
+  }
+  return true;
+};
+
+/**
+ * Ask the backend to email a fresh verification link. Returns true if
+ * the request was accepted (the backend always returns 200, even when
+ * the address is unknown, so callers should treat errors as opaque).
+ */
+export const resendVerification = async (email: string): Promise<boolean> => {
+  if (USE_MOCK) return true;
+  const res = await fetch(`${API_URL}/auth/resend-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Could not resend verification email');
+  }
+  return true;
+};
+
+/**
+ * Start the "forgot password" flow. The backend always returns 200 to
+ * avoid leaking which emails are registered — UI should show a
+ * neutral "if the account exists, we sent a link" message either way.
+ */
+export const forgotPassword = async (email: string): Promise<boolean> => {
+  if (USE_MOCK) return true;
+  const res = await fetch(`${API_URL}/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Could not start password reset');
+  }
+  return true;
+};
+
+/**
+ * Complete the "forgot password" flow with the token from the reset
+ * link and a new password. Returns true on success, throws on failure
+ * (expired token, too-short password, etc.).
+ */
+export const resetPassword = async (token: string, newPassword: string): Promise<boolean> => {
+  if (USE_MOCK) return true;
+  const res = await fetch(`${API_URL}/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Password reset failed');
+  }
+  return true;
 };
 
 export const login = async (email: string, password: string): Promise<Token> => {
@@ -170,6 +252,70 @@ export const deleteChat = async (chatId: string): Promise<void> => {
 export const logout = (): void => {
   if (USE_MOCK) return mock.mockLogout();
   localStorage.removeItem('token');
+};
+
+/**
+ * Fetch the authenticated user's profile. Used by the session boot
+ * path to populate the user object without trusting a client-side
+ * JWT decode. A 401 here means the stored token is bad — the
+ * caller should clear it and redirect to /login.
+ */
+export const fetchMe = async (): Promise<User> => {
+  if (USE_MOCK) {
+    // In mock mode, pull the user out of the seeded localStorage.
+    // Returns a minimal "demo user" shape if no session exists, so
+    // a cold boot doesn't crash — pages that need a real session
+    // still gate on `localStorage.getItem('token')`.
+    const token = localStorage.getItem('token');
+    if (!token) {
+      throw new Error('Not signed in');
+    }
+    return mock.mockGetCurrentUser();
+  }
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/users/me`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    if (res.status === 401) {
+      // Stored token is bad — clear it so the next page load is
+      // a clean unauthenticated state.
+      localStorage.removeItem('token');
+    }
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Could not load profile');
+  }
+  return res.json();
+};
+
+/**
+ * Change the authenticated user's password. Returns true on success
+ * and throws on failure (current password wrong, new password too
+ * short, etc.). The backend also bumps `token_version` so the user
+ * has to sign in again on any other device.
+ */
+export const changePassword = async (
+  currentPassword: string,
+  newPassword: string
+): Promise<boolean> => {
+  if (USE_MOCK) return true;
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/users/me/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || 'Could not change password');
+  }
+  return true;
 };
 
 // Re-export so other components can detect mock mode (e.g. to show a banner).

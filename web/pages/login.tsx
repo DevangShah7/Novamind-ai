@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { LogIn, Sparkles, Mail, Lock, ArrowRight } from 'lucide-react';
+import { LogIn, Sparkles, Mail, Lock, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { login, googleLogin, isMockMode } from '../lib/api';
 import AuthLayout from '../components/AuthLayout';
 import TextField from '../components/TextField';
@@ -15,7 +15,29 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  // Transient banner shown when the user lands here from
+  // /verify-email?token=... (registered=1) or /reset-password success.
+  // Auto-dismisses after 6 s.
+  const [banner, setBanner] = useState<string | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (router.query.registered === '1') {
+      setBanner('Email verified — you can sign in now.');
+      // Clean the URL so a refresh doesn't re-show the banner.
+      router.replace('/login', undefined, { shallow: true });
+    } else if (router.query.reset === '1') {
+      setBanner('Password updated — sign in with your new password.');
+      router.replace('/login', undefined, { shallow: true });
+    }
+  }, [router.isReady, router.query.registered, router.query.reset, router]);
+
+  useEffect(() => {
+    if (!banner) return;
+    const t = setTimeout(() => setBanner(null), 6000);
+    return () => clearTimeout(t);
+  }, [banner]);
 
   const emailErr = email && !EMAIL_RE.test(email) ? 'Enter a valid email' : '';
   const pwdErr = password && password.length < 6 ? 'At least 6 characters' : '';
@@ -39,14 +61,11 @@ export default function Login() {
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleCredential = async (idToken: string) => {
     setGoogleLoading(true);
     setError('');
     try {
-      // In mock mode this signs you in as the seeded demo Google user.
-      // With a real backend + NEXT_PUBLIC_USE_MOCK=false it would route
-      // through Google OAuth (see plan, Phase 1 Option B).
-      const data = await googleLogin('demo-token');
+      const data = await googleLogin(idToken);
       localStorage.setItem('token', data.access_token);
       router.push('/chat');
     } catch (err: any) {
@@ -67,6 +86,12 @@ export default function Login() {
       subtitle="Sign in to continue chatting with NovaMind AI."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {banner && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-700 dark:text-emerald-300 animate-fade-in">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{banner}</span>
+          </div>
+        )}
         <TextField
           id="email"
           label="Email"
@@ -77,16 +102,26 @@ export default function Login() {
           autoComplete="email"
           required
         />
-        <TextField
-          id="password"
-          label="Password"
-          type="password"
-          value={password}
-          onChange={setPassword}
-          error={pwdErr}
-          autoComplete="current-password"
-          required
-        />
+        <div>
+          <TextField
+            id="password"
+            label="Password"
+            type="password"
+            value={password}
+            onChange={setPassword}
+            error={pwdErr}
+            autoComplete="current-password"
+            required
+          />
+          <div className="mt-1.5 flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-muted-foreground transition-colors hover:text-primary"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        </div>
 
         {error && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive animate-fade-in">
@@ -121,7 +156,7 @@ export default function Login() {
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      <GoogleButton onClick={handleGoogleLogin} loading={googleLoading} />
+      <GoogleButton onCredential={handleGoogleCredential} loading={googleLoading} />
 
       {/* Demo mode helper — only visible when running on the mock backend. */}
       {isMockMode && (

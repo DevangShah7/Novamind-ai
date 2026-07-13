@@ -1,83 +1,95 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '../types';
+import { fetchMe } from './api';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  /**
+   * Re-fetch the user from the backend. Use this after any action
+   * that could change the user record (subscription update, profile
+   * edit, plan upgrade) so the rest of the UI sees the fresh state
+   * without a full page reload.
+   */
+  refresh: () => Promise<void>;
+  /**
+   * Replace the cached user object in-place. Useful for "edit my
+   * profile" flows where the new value is already known and we just
+   * need the rest of the app to see it.
+   */
+  setUser: (u: User | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  refresh: async () => {},
+  setUser: () => {},
 });
 
+/**
+ * Session boot path. Replaces the old JWT-decode-on-boot (insecure —
+ * any user can read the payload) with a real GET /users/me call.
+ *
+ * Outcomes:
+ *   - No stored token       → user is null, loading false
+ *   - Stored token + valid  → user populated, loading false
+ *   - Stored token + 401    → token is bad; we cleared it, user is null
+ *   - Network error         → user is null (treated as logged out);
+ *                             the next page load will retry
+ *
+ * The provider is intentionally forgiving: a failed /me call never
+ * throws to the consumer. Pages that need an authenticated user still
+ * gate on `useAuth().user` and redirect themselves.
+ */
 export const SessionProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      // In a real app, you would validate the token and fetch user data
-      // For now, we'll decode the JWT to get user info (not secure for production!)
-      try {
-        // Base64 decode the payload part of JWT
-        const payloadBase64 = token.split('.')[1];
-        const payload = JSON.parse(atob(payloadBase64));
-
-        // Create user object from token payload.
-        // The JWT only carries id + email; fill remaining User fields
-        // with safe null/empty defaults so it satisfies the full type.
-        const userData: User = {
-          id: payload.user_id || payload.sub ?
-            (typeof payload.sub === 'string' && payload.sub.startsWith('google_') ?
-             hashString(payload.sub) :
-             parseInt(payload.sub)) : 1,
-          email: payload.email || '',
-          username: payload.username || null,
-          full_name: payload.full_name || payload.name || null,
-          bio: payload.bio || null,
-          avatar_url: payload.avatar_url || payload.picture || null,
-          is_active: payload.is_active !== false,
-          is_verified: payload.is_verified === true,
-          google_id: payload.google_id ||
-            (typeof payload.sub === 'string' && payload.sub.startsWith('google_')
-              ? payload.sub
-              : null),
-        };
-        setUser(userData);
-      } catch (e) {
-        // If token parsing fails, fall back to a minimal mock user
-        setUser({
-          id: 1,
-          email: 'user@example.com',
-          username: null,
-          full_name: null,
-          bio: null,
-          avatar_url: null,
-          is_active: true,
-          is_verified: false,
-          google_id: null,
-        });
-      }
-    } else {
+  const refresh = useCallback(async () => {
+    try {
+      const u = await fetchMe();
+      setUser(u);
+    } catch {
       setUser(null);
     }
-    setLoading(false);
   }, []);
 
-  // Simple string hash function for demo purposes
-  const hashString = (str: string) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (typeof window === 'undefined') {
+        setLoading(false);
+        return;
+      }
+      const token = window.localStorage.getItem('token');
+      if (!token) {
+        if (!cancelled) {
+          setUser(null);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const u = await fetchMe();
+        if (!cancelled) setUser(u);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  return React.createElement(AuthContext.Provider, { value: { user: user, loading: loading } }, children);
+  const value = React.useMemo<AuthContextType>(
+    () => ({ user, loading, refresh, setUser }),
+    [user, loading, refresh]
+  );
+
+  return React.createElement(AuthContext.Provider, { value }, children);
 };
 
 export const useAuth = () => useContext(AuthContext);

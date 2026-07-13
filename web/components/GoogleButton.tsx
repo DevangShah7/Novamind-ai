@@ -1,10 +1,15 @@
+import { useState } from 'react';
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { Loader2 } from 'lucide-react';
 
 interface GoogleButtonProps {
-  onClick: () => void;
+  /** Called with the Google ID token (JWT) after the user picks an account. */
+  onCredential: (idToken: string) => Promise<void> | void;
   loading?: boolean;
   label?: string;
 }
+
+const CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 
 // Real Google "G" logo as inline SVG — 4-color, brand-compliant.
 function GoogleG() {
@@ -18,16 +23,72 @@ function GoogleG() {
   );
 }
 
-export default function GoogleButton({ onClick, loading, label = 'Continue with Google' }: GoogleButtonProps) {
+/**
+ * Real Google sign-in button.
+ *
+ * - When `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is set, the official
+ *   <GoogleLogin /> component renders Google's own button and returns
+ *   a Google ID token (JWT). That token is posted to the backend's
+ *   /auth/google endpoint, which verifies the signature with
+ *   google.oauth2.id_token and creates/links the user.
+ *
+ * - When the env var is empty, we render the styled fallback button
+ *   as a placeholder. Clicking it surfaces a friendly "not
+ *   configured" message — the page never crashes, the user always
+ *   has the email/password path.
+ */
+export default function GoogleButton({ onCredential, loading, label = 'Continue with Google' }: GoogleButtonProps) {
+  const [fallbackError, setFallbackError] = useState<string | null>(null);
+
+  const handleCredential = async (resp: CredentialResponse) => {
+    if (!resp.credential) {
+      setFallbackError('Google did not return a credential. Try again.');
+      return;
+    }
+    await onCredential(resp.credential);
+  };
+
+  if (!CLIENT_ID) {
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          disabled
+          title="Google login is not configured. Set NEXT_PUBLIC_GOOGLE_CLIENT_ID to enable it."
+          className="flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-lg border border-dashed border-input bg-card/50 px-4 py-2.5 text-sm font-medium text-muted-foreground"
+        >
+          <GoogleG />
+          {label} (not configured)
+        </button>
+        {fallbackError && (
+          <p className="text-xs text-destructive">{fallbackError}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={loading}
-      className="flex w-full items-center justify-center gap-3 rounded-lg border border-input bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-all hover:bg-muted hover:shadow disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <GoogleG />}
-      {loading ? 'Signing in…' : label}
-    </button>
+    <div className="relative">
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-card/80">
+          <Loader2 className="h-5 w-5 animate-spin text-foreground" />
+        </div>
+      )}
+      <div className="[&_div]:!w-full [&_div]:!flex [&_div]:!justify-center">
+        <GoogleLogin
+          onSuccess={handleCredential}
+          onError={() => setFallbackError('Google sign-in failed. Please try again.')}
+          useOneTap={false}
+          width="100%"
+          text="continue_with"
+          shape="rectangular"
+          theme="outline"
+          size="large"
+        />
+      </div>
+      {fallbackError && (
+        <p className="mt-2 text-xs text-destructive">{fallbackError}</p>
+      )}
+    </div>
   );
 }
