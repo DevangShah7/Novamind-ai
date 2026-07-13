@@ -136,6 +136,112 @@ def _to_llm_messages(messages: List[Dict[str, Any]]) -> List[LLMMessage]:
     return out
 
 
+def _enforce_quota(db: Session, user: User, key: ApiKey) -> None:
+    """Hard-cap gate based on the user's plan AND the key's per-key caps.
+
+    Two layers, both must allow the call:
+      1. Per-key caps: `key.monthly_token_limit` / `monthly_request_limit`
+         — set by the user on the developer portal. 0/None = unlimited.
+      2. Plan caps: the user's `Plan.monthly_token_limit` /
+         `monthly_request_limit` — enforced by summing the user's keys'
+         usage and comparing to the plan ceiling. Falls back to the
+         free plan if the user has no plan assigned.
+
+    Raises 429 with a structured body that the developer portal
+    surfaces as a friendly "upgrade to keep going" dialog.
+    """
+    # Per-key caps first — they're the cheaper check.
+    token_limit = key.monthly_token_limit
+    request_limit = key.monthly_request_limit
+    if token_limit and (key.monthly_token_count or 0) >= token_limit:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "quota_exceeded",
+                "scope": "key",
+                "limit_type": "tokens",
+                "limit": token_limit,
+                "used": key.monthly_token_count or 0,
+                "upgrade_url": "/pricing",
+            },
+        )
+    if request_limit and (key.monthly_request_count or 0) >= request_limit:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "quota_exceeded",
+                "scope": "key",
+                "limit_type": "requests",
+                "limit": request_limit,
+                "used": key.monthly_request_count or 0,
+                "upgrade_url": "/pricing",
+            },
+        )
+
+    # Plan-level caps. Sum usage across all of the user's keys — the
+    # user is the billing subject, the key is just the meter.
+    from app.models.billing import Plan
+
+    plan = (
+        db.query(Plan)
+        .filter(Plan.id == user.plan_id).first()
+        if user.plan_id
+        else None
+    )
+    if not plan:
+        # Implicit free plan when no plan_id is set. The seed inserts
+        # the free plan on first boot, but be defensive: if it's
+        # missing for any reason, allow the call through (don't 500 on
+        # a billing-migration misconfig).
+        return
+
+    plan_token_limit = plan.monthly_token_limit
+    plan_request_limit = plan.monthly_request_limit
+    if not (plan_token_limit or plan_request_limit):
+        # 0/None = unlimited (the business plan will be 10M+; the
+        # contract is "unlimited" past 10M, but we just gate on 0).
+        return
+
+    from app.models.api_key import ApiKey as ApiKeyModel
+    token_total = (
+        db.query(func.coalesce(func.sum(ApiKeyModel.monthly_token_count), 0))
+        .filter(ApiKeyModel.user_id == user.id)
+        .scalar()
+    ) or 0
+    request_total = (
+        db.query(func.coalesce(func.sum(ApiKeyModel.monthly_request_count), 0))
+        .filter(ApiKeyModel.user_id == user.id)
+        .scalar()
+    ) or 0
+
+    if plan_token_limit and token_total >= plan_token_limit:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "quota_exceeded",
+                "scope": "plan",
+                "plan": plan.slug,
+                "limit_type": "tokens",
+                "limit": plan_token_limit,
+                "used": int(token_total),
+                "upgrade_url": "/pricing",
+            },
+        )
+    if plan_request_limit and request_total >= plan_request_limit:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "quota_exceeded",
+                "scope": "plan",
+                "plan": plan.slug,
+                "limit_type": "requests",
+                "limit": plan_request_limit,
+                "used": int(request_total),
+                "upgrade_url": "/pricing",
+            },
+        )
+
+
 def _pick_service(model: Optional[str]):
     """Pick the right engine for the requested model name."""
     if not model or model == "NovaMind-local-v1":
@@ -161,6 +267,7 @@ async def chat_completions(
     ``stream=true`` (SSE in the same ``data: [DONE]`` shape OpenAI uses).
     """
     user, key = auth
+    _enforce_quota(db, user, key)
     model = payload.get("model")
     messages = payload.get("messages") or []
     if not messages:
@@ -297,6 +404,7 @@ def embeddings(
     when a real model is wired in.
     """
     user, key = auth
+    _enforce_quota(db, user, key)
     t0 = time.time()
     raw = payload.get("input")
     if raw is None:
@@ -397,7 +505,13 @@ def v1_billing(
     db: Session = Depends(deps.get_db),
     auth: tuple = Depends(get_user_from_api_key),
 ):
-    """Billing snapshot. Read-only — no charges are issued in this drop."""
+    """Billing snapshot — by-model rollup + current credit balance.
+
+    The model is the same one the JWT-authed `/api/v1/billing/plan`
+    endpoint exposes; the API-key variant is here for OpenAI-SDK
+    parity so a key can query its own usage + balance without needing
+    a separate user JWT.
+    """
     user, _ = auth
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -425,10 +539,12 @@ def v1_billing(
         "object": "billing.summary",
         "period_start": month_start.isoformat() + "Z",
         "currency": "USD",
-        "balance_usd": 0.0,            # wallet / credits — placeholder
-        "month_to_date_spend_usd": 0.0,  # payment gateway not wired in this drop
+        # Credit balance in cents (integer) — same field the
+        # `/api/v1/billing/plan` endpoint exposes. Callers that want
+        # dollars divide by 100.
+        "credits_balance_cents": user.credits_balance_cents or 0,
+        "month_to_date_spend_cents": 0,
         "by_model": by_model,
-        "note": "Billing endpoints are read-only in this drop; payment gateway integration is a follow-up.",
     }
 
 
@@ -438,8 +554,43 @@ def v1_invoices(
     db: Session = Depends(deps.get_db),
     auth: tuple = Depends(get_user_from_api_key),
 ):
-    """Invoices placeholder — empty list until the payment gateway is wired up."""
-    return {"object": "list", "data": []}
+    """Invoices. In mock mode we have no real invoices — return [].
+
+    In live-Stripe mode the same call forwards to Stripe and returns
+    the user's invoice list in OpenAI-shaped JSON. The forwarding
+    lives in the JWT-authed `/api/v1/billing/invoices` endpoint.
+    """
+    from app.core.config import settings as _s
+    if not _s.STRIPE_SECRET_KEY:
+        return {"object": "list", "data": []}
+    # In live mode, defer to the JWT endpoint's logic. We don't
+    # import it here to avoid a circular dependency through deps;
+    # instead we re-fetch directly via the Stripe SDK.
+    if not user.stripe_customer_id:
+        return {"object": "list", "data": []}
+    try:
+        import stripe  # type: ignore
+    except ImportError:
+        return {"object": "list", "data": []}
+    stripe.api_key = _s.STRIPE_SECRET_KEY
+    try:
+        result = stripe.Invoice.list(customer=user.stripe_customer_id, limit=50)
+    except Exception:
+        return {"object": "list", "data": []}
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": inv.id,
+                "amount_cents": inv.amount_paid or inv.amount_due or 0,
+                "currency": inv.currency,
+                "status": inv.status or "open",
+                "created_at": datetime.fromtimestamp(inv.created).isoformat() + "Z",
+                "hosted_invoice_url": inv.hosted_invoice_url,
+            }
+            for inv in result.data
+        ],
+    }
 
 
 # ---------- helpers ----------

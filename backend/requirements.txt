@@ -15,6 +15,11 @@ python-dotenv==1.0.0
 pydub==0.25.1
 httpx==0.25.2
 
+# Stripe (billing). The endpoint falls back to a local mock-checkout
+# flow when STRIPE_SECRET_KEY is empty, so this is a hard dep but only
+# touched at call time when billing is actually exercised.
+stripe==7.7.0
+
 # Postgres driver. Kept as psycopg2-binary for SQLAlchemy 1.4 compat.
 psycopg2-binary==2.9.9
 

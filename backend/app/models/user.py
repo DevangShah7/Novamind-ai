@@ -65,6 +65,17 @@ class User(Base):
     # without needing a server-side token store.
     token_version = Column(Integer, default=0, nullable=False)
 
+    # ---------- Billing (added 2026-07) ----------
+    # `plan_id` references `plans.id`. NULL means "use the free plan
+    # implicitly" (we resolve it on read so the FK stays optional).
+    # `stripe_customer_id` is `cus_...` once the user starts a real
+    # checkout; empty in mock mode. `credits_balance_cents` is the
+    # pay-as-you-go top-up balance; the credit ledger is the source
+    # of truth and this column is a denormalized cache.
+    plan_id = Column(Integer, nullable=True)
+    stripe_customer_id = Column(String, nullable=True, index=True)
+    credits_balance_cents = Column(Integer, default=0, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

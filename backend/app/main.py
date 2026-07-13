@@ -28,6 +28,7 @@ def _bootstrap_database() -> None:
     from app.core.database import Base, engine, SessionLocal
     from app.models.api_key import ensure_api_key_columns
     from app.models.user import ensure_user_columns
+    from app.models.billing import ensure_billing_columns, seed_plans
 
     logger.info("Running Base.metadata.create_all()")
     Base.metadata.create_all(bind=engine)
@@ -36,6 +37,21 @@ def _bootstrap_database() -> None:
     # Idempotent ALTER for the new email-verification, password-reset,
     # lockout, and token-version columns added 2026-07.
     ensure_user_columns(engine)
+    # Idempotent ALTER for the new billing columns (plan_id,
+    # stripe_customer_id, credits_balance_cents) added 2026-07. The
+    # plans / subscriptions / credit_ledger tables are created by
+    # `create_all` above; this helper only handles backfill on the
+    # existing `users` table.
+    ensure_billing_columns(engine)
+    # Idempotently seed the three default plans. Cheap query first so we
+    # never rewrite operator-edited prices.
+    db = SessionLocal()
+    try:
+        seed_plans(db=db)
+    except Exception as exc:  # pragma: no cover - operational
+        logger.warning("Plan seed failed: %s", exc)
+    finally:
+        db.close()
 
     # Seed initial admin only when the users table is empty. Cheap COUNT(*) so
     # we never reseed on a warm restart.

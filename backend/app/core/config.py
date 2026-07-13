@@ -39,13 +39,41 @@ class Settings(BaseSettings):
     # writes sent messages to `logs/dev-mail.log` so verification / reset
     # URLs are visible to the developer. Set all of these in `.env` to
     # send real mail from a deployment.
-    SMTP_HOST: str = ""
+    #
+    # The default SMTP_HOST is `smtp.gmail.com` (with STARTTLS on 587)
+    # because Gmail is the genuinely-free path for solo developers
+    # (Google account → 2-Step Verification → App password). To use
+    # SendGrid / Mailgun / SES / Postmark, override SMTP_HOST and the
+    # credentials below; the mailer treats the SMTP creds opaquely.
+    SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_TLS: bool = True
     SMTP_FROM: str = "noreply@novamind.ai"
     SMTP_FROM_NAME: str = "NovaMind"
+
+    # Gmail-friendly aliases. These mirror the SMTP_* fields but use
+    # Google's own naming so a developer can copy-paste the two values
+    # straight from the Google account page without translating.
+    #   GMAIL_ADDRESS     -> SMTP_USERNAME
+    #   GMAIL_APP_PASSWORD -> SMTP_PASSWORD
+    # Setting the GMAIL_* pair overrides the SMTP_* pair at construction.
+    GMAIL_ADDRESS: str = ""
+    GMAIL_APP_PASSWORD: str = ""
+
+    # ---------- Stripe (billing) ----------
+    # Empty STRIPE_SECRET_KEY puts the billing endpoints into "mock mode":
+    # checkout sessions resolve to an in-app `/billing/mock-checkout` page
+    # and webhooks are simulated by clicking "Confirm" there. Set all
+    # three of these to switch to real Stripe (test mode is fine).
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_PRO: str = ""
+    STRIPE_PRICE_BUSINESS: str = ""
+    # Where Stripe should redirect back to after a successful checkout.
+    # Defaults to the Vercel production URL; override in dev.
+    PUBLIC_SITE_URL: str = "https://web-ivory-eta-87.vercel.app"
 
     # ---------- AI models ----------
     # The default Ollama model to use for chat when the user doesn't
@@ -168,4 +196,20 @@ def _enforce_production_secret_key(s: "Settings") -> None:
 _enforce_production_secret_key(Settings())
 
 
-settings = Settings()
+def _apply_gmail_aliases(s: "Settings") -> "Settings":
+    """If GMAIL_ADDRESS / GMAIL_APP_PASSWORD are set, mirror them onto
+    SMTP_USERNAME / SMTP_PASSWORD so the mailer can stay SMTP-agnostic.
+
+    This runs after `Settings()` so the two GMAIL_* fields win over any
+    SMTP_* values the developer also set. Keeping the alias at the
+    config layer (rather than inside `mailer.send_email`) means tests
+    that build a `Settings()` directly get the same behavior.
+    """
+    if s.GMAIL_ADDRESS:
+        s.SMTP_USERNAME = s.GMAIL_ADDRESS
+    if s.GMAIL_APP_PASSWORD:
+        s.SMTP_PASSWORD = s.GMAIL_APP_PASSWORD
+    return s
+
+
+settings = _apply_gmail_aliases(Settings())
