@@ -631,3 +631,29 @@ def _log_usage(
         key.monthly_token_count = (key.monthly_token_count or 0) + int(tokens)
     db.add(key)
     db.commit()
+
+    # Fire webhooks for the ``api.request.completed`` event. We only
+    # emit on success — error events would create a flood during
+    # incidents. The dispatcher looks up the user's subscribed webhooks
+    # in its own session, so we don't pass the request-scoped ``db``
+    # into a background task.
+    if status_code and 200 <= status_code < 300:
+        try:
+            from app.core import webhook_dispatcher
+            webhook_dispatcher.enqueue(
+                db,
+                user_id=user.id,
+                event_type="api.request.completed",
+                payload={
+                    "endpoint": endpoint,
+                    "method": request.method if request else "POST",
+                    "status_code": status_code,
+                    "elapsed_ms": int(elapsed_ms),
+                    "tokens_used": int(tokens) if tokens else 0,
+                    "model_used": model_used,
+                    "api_key_id": key.id,
+                },
+            )
+        except Exception:
+            # Never let webhook failures break the response.
+            logger.debug("webhook enqueue failed (ignored)", exc_info=True)

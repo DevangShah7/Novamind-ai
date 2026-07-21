@@ -7,6 +7,9 @@ import { useAuth } from '../../lib/auth';
 import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2 } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
+import { ThinkingOrb } from '../../components/chat/ThinkingOrb';
+import { GlassCard } from '../../components/dashboard/GlassCard';
+import { StaggerChildren, StaggerItem } from '../../components/motion';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -99,19 +102,24 @@ export default function ChatListPage() {
         )}
 
         {/* Hero "new chat" panel */}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-10">
+        <GlassCard className="p-6 sm:p-10" noHover noShimmer>
           <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full gradient-bg opacity-10 blur-3xl" />
           <div className="relative">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
-              <Sparkles className="h-4 w-4" />
-              Start a new conversation
+            <div className="mb-4 flex items-center gap-4">
+              <ThinkingOrb status="idle" size={64} />
+              <div>
+                <div className="mb-1 flex items-center gap-2 text-sm font-medium text-primary">
+                  <Sparkles className="h-4 w-4" />
+                  Start a new conversation
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                  What can I help you with today?
+                </h1>
+                <p className="mt-1 text-muted-foreground">
+                  Ask anything, paste code, or pick one of the starters below.
+                </p>
+              </div>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              What can I help you with today?
-            </h1>
-            <p className="mt-2 text-muted-foreground">
-              Ask anything, paste code, or pick one of the starters below.
-            </p>
 
             <form
               onSubmit={(e) => {
@@ -139,25 +147,26 @@ export default function ChatListPage() {
             </form>
 
             {/* Example prompt chips */}
-            <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <StaggerChildren className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2" delay={0.1} gap={0.06}>
               {EXAMPLE_PROMPTS.map(({ icon: Icon, label, text }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => handleCreateChat(text)}
-                  disabled={loading}
-                  className="group flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-left text-sm transition-colors hover:border-primary/40 hover:bg-muted"
-                >
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <span className="flex-1 text-foreground">{label}</span>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                </button>
+                <StaggerItem key={label}>
+                  <button
+                    type="button"
+                    onClick={() => handleCreateChat(text)}
+                    disabled={loading}
+                    className="group flex w-full items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-left text-sm transition-colors hover:border-primary/40 hover:bg-muted"
+                  >
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <span className="flex-1 text-foreground">{label}</span>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  </button>
+                </StaggerItem>
               ))}
-            </div>
+            </StaggerChildren>
           </div>
-        </div>
+        </GlassCard>
 
         {/* Recent chats */}
         <div className="mt-10">

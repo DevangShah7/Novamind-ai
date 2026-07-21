@@ -1,5 +1,6 @@
 import { User, Token, RegisterResult, Chat, Message } from '../types';
 import * as mock from './mockBackend';
+import { extractErrorMessage } from './validation';
 
 // Re-export so the UI can use a single import path for the demo creds.
 export const getDemoCredentials = mock.getDemoCredentials;
@@ -49,8 +50,13 @@ export const register = async (
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Registration failed');
+    // FastAPI returns 422 with a list of validation objects when the
+    // password fails the rules in `schemas/user.py`. The default
+    // `await res.json()` then `error.detail` flow would push an array
+    // straight into the UI as "[object Object]"; `extractErrorMessage`
+    // flattens the list to a readable string ("Password must contain
+    // at least one letter and one digit") so the user can act on it.
+    throw new Error(await extractErrorMessage(res, 'Registration failed'));
   }
   // The backend now returns 202 + `MessageResponse` and emails a
   // verification link. The client UI shows "check your inbox"; the
@@ -147,13 +153,10 @@ export const login = async (email: string, password: string): Promise<Token> => 
     body,
   });
   if (!res.ok) {
-    const error = await res.json();
-    // FastAPI returns `detail` as either a string (bad password) or a
-    // list of validation errors (422). Normalize to a flat string.
-    const msg = Array.isArray(error.detail)
-      ? error.detail.map((d: any) => d.msg).join('; ')
-      : error.detail || 'Login failed';
-    throw new Error(msg);
+    // Same pattern as `register` above: 422 returns a list of
+    // validation objects, not a string. Flatten to a single message
+    // so the login form can show something the user can act on.
+    throw new Error(await extractErrorMessage(res, 'Login failed'));
   }
   return res.json();
 };

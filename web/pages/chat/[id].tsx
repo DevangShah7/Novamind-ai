@@ -8,6 +8,10 @@ import { Chat, Message, asMeta } from '../../types';
 import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2 } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
+import { ThinkingOrb } from '../../components/chat/ThinkingOrb';
+import { StreamingCursor } from '../../components/chat/StreamingCursor';
+import { TypingIndicator } from '../../components/chat/TypingIndicator';
+import { DropZone } from '../../components/chat/DropZone';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -105,6 +109,14 @@ export default function ChatPage() {
       setLoading(false);
       setIsTyping(false);
     }
+  };
+
+  const handleAttachFiles = (files: File[]) => {
+    // DropZone passes the file list to us. For now we just announce
+    // it via a toast — MessageInput still owns its own file-picker
+    // path. Future: route through MessageInput's onAttach (TODO).
+    if (files.length === 0) return;
+    toast.success(`Attached ${files.length} file${files.length > 1 ? 's' : ''}`);
   };
 
   const handleCopy = async (msg: Message) => {
@@ -216,21 +228,18 @@ export default function ChatPage() {
 
             {isTyping && (
               <div className="mb-4 flex items-start gap-3 animate-fade-in">
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white">
-                  <Brain className="h-4 w-4" />
-                </div>
+                <ThinkingOrb status="thinking" size={36} />
                 <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-1.5">
-                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse [animation-delay:150ms]" />
-                    <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse [animation-delay:300ms]" />
-                  </div>
+                  <TypingIndicator />
                 </div>
               </div>
             )}
 
             <div className="space-y-6">
-              {messages.map((msg) => (
+              {messages.map((msg, idx) => {
+                const isLast = idx === messages.length - 1;
+                const showCursor = msg.is_ai && isLast && isTyping;
+                return (
                 <div
                   key={msg.id}
                   className={`group flex items-start gap-3 animate-fade-in ${
@@ -253,11 +262,14 @@ export default function ChatPage() {
                     <div
                       className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
                         msg.is_ai
-                          ? 'rounded-tl-sm border border-border bg-card text-foreground'
+                          ? 'rounded-tl-sm border border-border bg-card text-foreground transition-shadow hover:shadow-md'
                           : 'rounded-tr-sm gradient-bg text-white'
                       }`}
                     >
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                      <p className="whitespace-pre-wrap break-words leading-relaxed">
+                        {msg.content}
+                        {showCursor && <StreamingCursor />}
+                      </p>
                     </div>
 
                     <div className={`mt-1 flex items-center gap-2 text-xs text-muted-foreground ${msg.is_ai ? '' : 'flex-row-reverse'}`}>
@@ -289,7 +301,8 @@ export default function ChatPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
           </div>
@@ -298,7 +311,9 @@ export default function ChatPage() {
         {/* Input */}
         <div className="flex-shrink-0 border-t border-border bg-card/80 backdrop-blur-md">
           <div className="mx-auto max-w-3xl px-4 py-3 sm:px-6 sm:py-4">
-            <MessageInput onSend={handleSendMessage} loading={loading} />
+            <DropZone onFiles={handleAttachFiles}>
+              <MessageInput onSend={handleSendMessage} loading={loading} />
+            </DropZone>
           </div>
         </div>
       </div>

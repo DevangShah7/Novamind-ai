@@ -1,7 +1,57 @@
 import { ApiKey, User } from '../types';
 import { getChats, createChat } from './api';
+import { extractErrorMessage } from './validation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+/**
+ * Body shape for `POST /admin/`. The backend's `UserAdminCreate`
+ * schema is a superset of the public `UserCreate` — it adds
+ * `is_admin` and accepts a password (required for new accounts).
+ * `Partial<User>` is too narrow because `password` isn't a User
+ * field (the User type only has `google_id`, etc., not the
+ * plaintext credential).
+ */
+export interface AdminUserCreate {
+  email: string;
+  password: string;
+  username?: string;
+  full_name?: string;
+  is_admin?: boolean;
+}
+
+/**
+ * Body shape for `PUT /admin/{id}`. The `password` field is
+ * optional — leaving it out means "don't change the password".
+ * The backend hashes any non-empty value before persisting.
+ */
+export interface AdminUserUpdate {
+  email?: string;
+  username?: string | null;
+  full_name?: string | null;
+  password?: string;
+  is_active?: boolean;
+  is_verified?: boolean;
+  is_admin?: boolean;
+}
+
+/** Authenticated admin fetch. Surfaces FastAPI's `detail` (string or
+ *  422 validation list) as a useful Error. */
+async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, `Request failed (${res.status})`));
+  }
+  return res;
+}
 
 export const getSystemStats = async (): Promise<any> => {
   const token = localStorage.getItem('token');
@@ -94,62 +144,29 @@ export const validateApiKey = async (keyId: number): Promise<any> => {
 
 // User management functions
 export const getUsers = async (): Promise<User[]> => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}/admin/`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    throw new Error('Failed to fetch users');
-  }
+  const res = await adminFetch('/admin/');
   return res.json();
 };
 
-export const createUser = async (userData: Partial<User>): Promise<User> => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}/admin/`, {
+export const createUser = async (userData: AdminUserCreate): Promise<User> => {
+  const res = await adminFetch('/admin/', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
     body: JSON.stringify(userData),
   });
-  if (!res.ok) {
-    throw new Error('Failed to create user');
-  }
   return res.json();
 };
 
 export const updateUser = async (
   userId: number,
-  userData: Partial<User>
+  userData: AdminUserUpdate
 ): Promise<User> => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}/admin/${userId}`, {
+  const res = await adminFetch(`/admin/${userId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
     body: JSON.stringify(userData),
   });
-  if (!res.ok) {
-    throw new Error('Failed to update user');
-  }
   return res.json();
 };
 
 export const deleteUser = async (userId: number): Promise<void> => {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}/admin/${userId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) {
-    throw new Error('Failed to delete user');
-  }
+  await adminFetch(`/admin/${userId}`, { method: 'DELETE' });
 };

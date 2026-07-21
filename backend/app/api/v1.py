@@ -14,3 +14,11 @@ api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 api_router.include_router(users_me.router, prefix="/users", tags=["users"])
 api_router.include_router(models.router, tags=["models"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
+
+# Developer-platform endpoints (also mounted at /v1/* in main.py with
+# API-key auth). Re-mounting them here under /api/v1/* with JWT auth
+# would require a JWT-or-key dependency, which doesn't exist today;
+# the /v1/* surface is the single source of truth until then.
+# from app.api.endpoints import webhooks, organizations
+# api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+# api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])

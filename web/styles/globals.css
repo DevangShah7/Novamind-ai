@@ -71,4 +71,89 @@
   .glass-card {
     @apply bg-white/10 backdrop-blur-md border border-white/20;
   }
+
+  /* Skeleton shimmer: animated linear gradient sweep */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.18) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.4s linear infinite;
+  }
+
+  /* Animated gradient border for "premium" callouts (e.g. Pro plan card). */
+  .animated-border {
+    position: relative;
+    isolation: isolate;
+  }
+  .animated-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    background: linear-gradient(
+      120deg,
+      hsl(243 75% 59%),
+      hsl(280 65% 60%),
+      hsl(330 81% 60%),
+      hsl(243 75% 59%)
+    );
+    background-size: 300% 100%;
+    animation: gradient-sweep 6s linear infinite;
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Shimmer overlay that sweeps across a card on hover. */
+  .card-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .card-shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      115deg,
+      transparent 0%,
+      transparent 40%,
+      hsl(0 0% 100% / 0.08) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    transform: translateX(-100%);
+    transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+  }
+  .card-shimmer:hover::after {
+    transform: translateX(100%);
+  }
+
+  /* Dropzone highlight while dragging files over the composer. */
+  .dropzone-active {
+    box-shadow: 0 0 0 2px hsl(var(--primary)),
+                0 0 32px 4px hsl(var(--primary) / 0.25);
+  }
+}
+
+/* Reduced-motion backstop. Any user who prefers reduced motion gets
+   essentially-instant transitions / animations everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

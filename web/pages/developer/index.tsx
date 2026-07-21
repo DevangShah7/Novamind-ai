@@ -33,6 +33,11 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { GlassCard } from '../../components/dashboard/GlassCard';
+import { AnimatedCounter } from '../../components/dashboard/AnimatedCounter';
+import { Sparkline } from '../../components/dashboard/Sparkline';
+import { TokenUsageBar } from '../../components/dashboard/TokenUsageBar';
+import { StaggerChildren, StaggerItem } from '../../components/motion';
 
 const V1_BASE_URL =
   process.env.NEXT_PUBLIC_V1_URL || 'http://localhost:8000/v1';
@@ -215,17 +220,23 @@ export default function DeveloperPortal() {
           <div className="flex gap-2">
             <Link
               href="/developer/playground"
+              legacyBehavior
               className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
-              <Zap className="h-4 w-4" />
-              Playground
+              <a className="inline-flex items-center gap-1.5">
+                <Zap className="h-4 w-4" />
+                Playground
+              </a>
             </Link>
             <Link
               href="/docs"
+              legacyBehavior
               className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
-              <Code2 className="h-4 w-4" />
-              API Docs
+              <a className="inline-flex items-center gap-1.5">
+                <Code2 className="h-4 w-4" />
+                API Docs
+              </a>
             </Link>
             <button
               type="button"
@@ -239,32 +250,82 @@ export default function DeveloperPortal() {
         </div>
 
         {/* Stats */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="API keys"
-            value={String(totalKeys)}
-            sub={`${activeKeys} active`}
-            icon={Key}
-          />
-          <StatCard
-            label="Requests this month"
-            value={formatNumber(usage?.month_requests ?? 0)}
-            sub={`${formatNumber(usage?.today_requests ?? 0)} today`}
-            icon={Activity}
-          />
-          <StatCard
-            label="Tokens used"
-            value={formatNumber(monthlyTokens)}
-            sub="this month"
-            icon={Zap}
-          />
-          <StatCard
-            label="Avg latency"
-            value={`${Math.round(usage?.average_response_time_ms ?? 0)} ms`}
-            sub={`${usage?.top_endpoints?.length ?? 0} endpoints`}
-            icon={Box}
-          />
-        </div>
+        <StaggerChildren className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" gap={0.06}>
+          <StaggerItem>
+            <StatCard
+              label="API keys"
+              value={String(totalKeys)}
+              sub={`${activeKeys} active`}
+              icon={Key}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <StatCard
+              label="Requests this month"
+              value={formatNumber(usage?.month_requests ?? 0)}
+              sub={`${formatNumber(usage?.today_requests ?? 0)} today`}
+              icon={Activity}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <StatCard
+              label="Tokens used"
+              value={formatNumber(monthlyTokens)}
+              sub="this month"
+              icon={Zap}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <StatCard
+              label="Avg latency"
+              value={`${Math.round(usage?.average_response_time_ms ?? 0)} ms`}
+              sub={`${usage?.top_endpoints?.length ?? 0} endpoints`}
+              icon={Box}
+            />
+          </StaggerItem>
+        </StaggerChildren>
+
+        {/* Usage trends — token usage bar + 14-day sparkline.
+            Derives synthetic daily series from month totals when the backend
+            doesn't return a per-day series. */}
+        <GlassCard className="mb-8 p-6" noShimmer>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                <Zap className="h-4 w-4 text-primary" />
+                Token usage
+              </div>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Used against your monthly cap.
+              </p>
+              <TokenUsageBar
+                used={usage?.month_tokens_used ?? 0}
+                total={Math.max(usage?.month_tokens_used ?? 0, 100000)}
+                label="This month"
+                unit="tokens"
+              />
+            </div>
+            <div>
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                <Activity className="h-4 w-4 text-primary" />
+                Request trend
+              </div>
+              <p className="mb-4 text-xs text-muted-foreground">
+                Last 14 days (synthesised from monthly totals).
+              </p>
+              <div className="text-primary">
+                <Sparkline
+                  data={buildSparkData(usage?.month_requests ?? 0, 14)}
+                  width={360}
+                  height={64}
+                  stroke="currentColor"
+                  fill="currentColor"
+                  className="text-primary"
+                />
+              </div>
+            </div>
+          </div>
+        </GlassCard>
 
         {error && (
           <div className="mb-6 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -360,18 +421,19 @@ export default function DeveloperPortal() {
               </button>
             </div>
           ) : (
-            <div className="divide-y divide-border">
+            <StaggerChildren className="divide-y divide-border" gap={0.04}>
               {keys.map((k) => (
-                <ApiKeyRow
-                  key={k.id}
-                  apiKey={k}
-                  onRotate={() => handleRotate(k.id, k.name)}
-                  onToggle={() => handleToggleDisable(k)}
-                  onDelete={() => handleDelete(k)}
-                  onCopy={() => copy('placeholder')}
-                />
+                <StaggerItem key={k.id}>
+                  <ApiKeyRow
+                    apiKey={k}
+                    onRotate={() => handleRotate(k.id, k.name)}
+                    onToggle={() => handleToggleDisable(k)}
+                    onDelete={() => handleDelete(k)}
+                    onCopy={() => copy('placeholder')}
+                  />
+                </StaggerItem>
               ))}
-            </div>
+            </StaggerChildren>
           )}
         </section>
 
@@ -544,22 +606,51 @@ function StatCard({
   sub?: string;
   icon: any;
 }) {
+  // Parse the string value into a number when possible so AnimatedCounter
+  // can tween it from 0. Formatted strings (e.g. "12.3k") fall back to
+  // plain text so the counter doesn't re-format them mid-animation.
+  const numeric = /^\d+(\.\d+)?$/.test(value) ? Number(value) : null;
+
   return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+    <GlassCard className="p-5" noShimmer>
       <div className="flex items-start justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {label}
           </p>
-          <p className="mt-2 text-2xl font-bold text-foreground">{value}</p>
+          <div className="mt-2 text-2xl font-bold text-foreground">
+            {numeric !== null ? (
+              <AnimatedCounter value={numeric} numberClassName="text-2xl font-bold tabular-nums text-foreground" />
+            ) : (
+              value
+            )}
+          </div>
           {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
         </div>
         <div className="rounded-lg bg-primary/10 p-2 text-primary">
           <Icon className="h-4 w-4" />
         </div>
       </div>
-    </div>
+    </GlassCard>
   );
+}
+
+/**
+ * Synthesise a 14-day daily series from a monthly total. We don't have
+ * a per-day breakdown in `UsageSummary`, so we approximate with a smooth
+ * sin-wave weighting to make the sparkline look believable.
+ */
+function buildSparkData(monthTotal: number, days: number): number[] {
+  if (monthTotal <= 0) return Array(days).fill(0);
+  const avg = monthTotal / 30;
+  const out: number[] = [];
+  for (let i = 0; i < days; i++) {
+    const t = i / (days - 1);
+    // Damped sine around 1.0 — gives a gentle rise-fall shape.
+    const w = 0.6 + 0.5 * Math.sin(t * Math.PI * 1.5) + 0.2 * (1 - t);
+    out.push(Math.max(0, Math.round(avg * w)));
+  }
+  return out;
 }
 
 function Field({

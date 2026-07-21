@@ -1,0 +1,14 @@
+# Build outputs and downloaded dependencies
+app/build/
+.gradle/
+local.properties
+*.iml
+.idea/
+
+# AAR/JAR dependencies (regenerate with download-deps.sh if needed)
+androidx-*.aar
+androidx-*.jar
+browserhelper.aar
+
+# Generated keystore (commit only if intentional; this is for dev/sideload testing)
+debug.keystore

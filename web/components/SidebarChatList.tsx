@@ -72,10 +72,10 @@ export default function SidebarChatList() {
                 <li key={chat.id} className="group relative">
                   <Link
                     href={`/chat/${chat.id}`}
-                    className={`block rounded-lg px-3 py-2 text-sm transition-colors ${
+                    className={`relative block rounded-lg px-3 py-2 text-sm transition-all duration-150 ${
                       isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-foreground hover:bg-muted'
+                        ? 'bg-primary/10 text-primary font-medium shadow-[inset_3px_0_0_currentColor]'
+                        : 'text-foreground hover:bg-muted hover:translate-x-1'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">

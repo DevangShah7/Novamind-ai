@@ -105,11 +105,14 @@ export default function VerifyEmail() {
         <div className="flex flex-col gap-2">
           <Link
             href="/signup"
+            legacyBehavior
             className="flex w-full items-center justify-center gap-2 rounded-lg gradient-bg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]"
           >
-            <MailQuestion className="h-4 w-4" />
-            Send a new verification email
-            <ArrowRight className="h-4 w-4" />
+            <a className="flex w-full items-center justify-center gap-2">
+              <MailQuestion className="h-4 w-4" />
+              Send a new verification email
+              <ArrowRight className="h-4 w-4" />
+            </a>
           </Link>
           <Link
             href="/login"

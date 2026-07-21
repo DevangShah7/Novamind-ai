@@ -32,6 +32,10 @@ import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Button } from '../../components/ui/Button';
+import { GlassCard } from '../../components/dashboard/GlassCard';
+import { AnimatedCounter } from '../../components/dashboard/AnimatedCounter';
+import { TokenUsageBar } from '../../components/dashboard/TokenUsageBar';
+import { StaggerChildren, StaggerItem } from '../../components/motion';
 import {
   Dialog,
   DialogContent,
@@ -285,14 +289,25 @@ export default function BillingPage() {
 
                     {/* Usage bars */}
                     <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                      <UsageMeter
-                        label="Tokens"
-                        icon={Zap}
-                        used={tokensUsed}
-                        limit={tokensLimit}
-                        pct={tokenPct}
-                        over={tokenOver}
-                      />
+                      {tokensLimit > 0 ? (
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <TokenUsageBar
+                            used={tokensUsed}
+                            total={tokensLimit}
+                            label="Tokens"
+                            unit="tokens"
+                          />
+                        </div>
+                      ) : (
+                        <UsageMeter
+                          label="Tokens"
+                          icon={Zap}
+                          used={tokensUsed}
+                          limit={tokensLimit}
+                          pct={tokenPct}
+                          over={tokenOver}
+                        />
+                      )}
                       <UsageMeter
                         label="Requests"
                         icon={Activity}
@@ -359,7 +374,13 @@ export default function BillingPage() {
                   ) : (
                     <>
                       <p className="text-2xl font-bold text-foreground">
-                        {formatCents(plan?.credits_balance_cents ?? 0)}
+                        <AnimatedCounter
+                          value={(plan?.credits_balance_cents ?? 0) / 100}
+                          numberClassName="text-2xl font-bold tabular-nums text-foreground"
+                          minFractionDigits={2}
+                          maxFractionDigits={2}
+                          prefix="$"
+                        />
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         Used when you exceed plan limits. Add credits via the

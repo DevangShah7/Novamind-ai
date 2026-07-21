@@ -2,6 +2,7 @@ from .user import *
 from .chat import *
 from .api_key import *
 from .api_usage import *
+from .webhook import *
 
 __all__ = [
     # User CRUD
@@ -23,5 +24,9 @@ __all__ = [
 
     # API Usage CRUD
     ["create_api_usage", "get_api_usage_by_user", "get_api_usage_by_api_key",
-     "get_recent_api_usage"]
+     "get_recent_api_usage"],
+
+    # Webhook CRUD
+    ["create_webhook", "get_webhook", "list_webhooks", "update_webhook",
+     "delete_webhook", "record_delivery", "list_deliveries"],
 ]

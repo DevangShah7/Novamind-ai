@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Brain, Github } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -17,16 +18,29 @@ interface NavBarProps {
  */
 export default function NavBar({ variant = 'marketing' }: NavBarProps) {
   const router = useRouter();
-  const isAuthed = typeof window !== 'undefined' && !!window.localStorage.getItem('token');
+  // Read auth state from localStorage AFTER mount. Reading it during the
+  // initial render causes a React #418 hydration mismatch: the server
+  // prerender doesn't have window, so it always renders the
+  // "Sign in / Get started" pair; if a returning visitor has a token in
+  // localStorage, the client first-render shows "Open app" instead.
+  // Deferring to useEffect keeps the initial server+client HTML identical
+  // and flips the buttons after hydration. The brief flash is invisible
+  // because the route is cached on the prerendered page.
+  const [isAuthed, setIsAuthed] = useState(false);
+  useEffect(() => {
+    setIsAuthed(!!window.localStorage.getItem('token'));
+  }, []);
 
   return (
     <header className="sticky top-0 z-30 w-full border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white">
-            <Brain className="h-5 w-5" />
-          </div>
-          <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+          <span className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white">
+              <Brain className="h-5 w-5" />
+            </div>
+            <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+          </span>
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">

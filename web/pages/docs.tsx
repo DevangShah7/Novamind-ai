@@ -92,18 +92,24 @@ export default function DocsPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/developer"
+              legacyBehavior
               className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
-              <ShieldCheck className="h-4 w-4" />
-              Developer Portal
+              <a className="inline-flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4" />
+                Developer Portal
+              </a>
             </Link>
             <Link
               href="/developer/playground"
+              legacyBehavior
               className="inline-flex items-center gap-1.5 rounded-lg gradient-bg px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
             >
-              <Zap className="h-4 w-4" />
-              Open Playground
-              <ArrowRight className="h-3.5 w-3.5" />
+              <a className="inline-flex items-center gap-1.5">
+                <Zap className="h-4 w-4" />
+                Open Playground
+                <ArrowRight className="h-3.5 w-3.5" />
+              </a>
             </Link>
           </div>
         </div>

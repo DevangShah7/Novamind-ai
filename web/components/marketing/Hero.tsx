@@ -53,8 +53,10 @@ export default function Hero() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild size="lg">
               <Link href="/signup">
-                Get started free
-                <ArrowRight className="h-4 w-4" />
+                <span className="inline-flex items-center gap-2">
+                  Get started free
+                  <ArrowRight className="h-4 w-4" />
+                </span>
               </Link>
             </Button>
             <Button asChild size="lg" variant="outline">

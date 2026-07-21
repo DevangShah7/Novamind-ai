@@ -19,13 +19,28 @@ def get_users(db: Session, skip: int = 0, limit: int = 100):
     return db.query(User).offset(skip).limit(limit).all()
 
 def create_user(db: Session, user: UserCreate):
+    """Insert a new user row.
+
+    Used by both the public `/auth/register` flow (UserCreate) and the
+    admin "create user" flow (UserAdminCreate). The admin schema is a
+    superset — same fields plus `is_admin` — so we forward that here
+    when it's set. The public flow always passes `is_admin=False`
+    implicitly (the field is omitted from the request body), so this
+    doesn't relax any access controls: only an admin can call the
+    admin endpoint, and the admin endpoint is the only one that can
+    produce a UserAdminCreate instance.
+    """
     hashed_password = get_password_hash(user.password)
+    # `getattr` with a default keeps this safe for the public flow,
+    # which doesn't expose `is_admin` on the wire.
+    is_admin = bool(getattr(user, "is_admin", False))
     db_user = User(
         email=user.email,
         username=user.username,
         full_name=user.full_name,
         hashed_password=hashed_password,
-        preferences=json.dumps({"theme": "light", "notifications": True})  # Default preferences
+        is_admin=is_admin,
+        preferences=json.dumps({"theme": "light", "notifications": True}),  # Default preferences
     )
     db.add(db_user)
     db.commit()
@@ -88,3 +103,15 @@ def count_admins(db: Session) -> int:
 def count_active(db: Session) -> int:
     """Count active users"""
     return db.query(User).filter(User.is_active == True).count()
+
+
+def count(db: Session) -> int:
+    """Count all users in the system.
+
+    Referenced by the admin router's `/admin/stats/` endpoint (and
+    `crud/__init__.py`'s public exports). Kept separate from
+    `count_active` / `count_admins` so the total can include disabled
+    and unverified accounts — admins want the real number, not the
+    "currently active" number.
+    """
+    return db.query(User).count()

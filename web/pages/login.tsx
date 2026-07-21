@@ -6,6 +6,7 @@ import { login, googleLogin, isMockMode } from '../lib/api';
 import AuthLayout from '../components/AuthLayout';
 import TextField from '../components/TextField';
 import GoogleButton from '../components/GoogleButton';
+import { AnimatedFormPanel, AnimatedFormItem } from '../components/auth/AnimatedFormPanel';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -85,7 +86,8 @@ export default function Login() {
       title="Welcome back"
       subtitle="Sign in to continue chatting with NovaMind AI."
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <AnimatedFormPanel>
+        <form onSubmit={handleSubmit} className="space-y-4">
         {banner && (
           <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-700 dark:text-emerald-300 animate-fade-in">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -188,6 +190,7 @@ export default function Login() {
       <p className="mt-3 text-center text-xs text-muted-foreground">
         By continuing, you agree to NovaMind AI&apos;s Terms of Service and Privacy Policy.
       </p>
+      </AnimatedFormPanel>
     </AuthLayout>
   );
 }

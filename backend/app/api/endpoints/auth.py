@@ -278,27 +278,36 @@ def verify_email(body: EmailVerifyRequest, db: Session = Depends(deps.get_db)):
 
 @router.post("/resend-verification", response_model=MessageResponse)
 def resend_verification(
-    _body: ResendVerificationRequest,
+    body: ResendVerificationRequest,
     db: Session = Depends(deps.get_db),
-    current_user=Depends(deps.get_current_active_user),
 ):
-    """Re-mint a verification token and email the current user.
+    """Re-mint a verification token and email the user.
 
-    Requires the user to be logged in (so an attacker can't flood
-    arbitrary inboxes). If the user is already verified, this is a
-    no-op that returns 200.
+    Unauthenticated by design: a user who just signed up doesn't have a
+    JWT yet, and they need to be able to ask for the email to be re-sent
+    before clicking the link. Flood protection comes from two places:
+
+      1. The global RATELIMIT_AUTH_PER_MIN middleware caps /api/v1/auth/*
+         requests per IP (default 10/min, see main.py).
+      2. The handler returns the same response whether the email is
+         registered or not, so attackers can't enumerate accounts.
+
+    Already-verified users are silently no-op'd.
     """
-    if current_user.is_verified:
-        return MessageResponse(message="Email already verified.")
-    token = secrets.token_urlsafe(32)
-    current_user.email_verification_token = token
-    current_user.email_verification_expires = datetime.now(timezone.utc) + timedelta(
-        hours=EMAIL_VERIFICATION_TTL_HOURS
-    )
-    db.commit()
-    _send_verification_email(current_user.email, token)
+    user = get_user_by_email(db, email=body.email)
+    if user and not user.is_verified and user.hashed_password:
+        token = secrets.token_urlsafe(32)
+        user.email_verification_token = token
+        user.email_verification_expires = datetime.now(timezone.utc) + timedelta(
+            hours=EMAIL_VERIFICATION_TTL_HOURS
+        )
+        db.commit()
+        _send_verification_email(user.email, token)
     return MessageResponse(
-        message="Verification email resent. Please check your inbox."
+        message=(
+            "If an account exists for that email and is not yet "
+            "verified, a fresh verification link has been sent."
+        )
     )
 
 

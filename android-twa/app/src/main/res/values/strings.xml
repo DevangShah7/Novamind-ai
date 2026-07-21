@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NovaMind</string>
+    <!--
+      TWA asset_statements: proves this APK is associated with the listed sites.
+      Used by Chrome's verification at startup. The sha256_cert_fingerprints is
+      the SHA-256 of the signing cert. Replace with your own cert's hash after
+      the first build (see README).
+    -->
+    <string name="asset_statements">
+        [{
+          \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+          \"target\": {
+            \"namespace\": \"web\",
+            \"site\": \"https://web-ivory-eta-87.vercel.app\"
+          }
+        },{
+          \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+          \"target\": {
+            \"namespace\": \"web\",
+            \"site\": \"https://efficiently-vital-handed-habits.trycloudflare.com\"
+          }
+        }]
+    </string>
+</resources>

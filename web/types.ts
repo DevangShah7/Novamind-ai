@@ -7,6 +7,13 @@ export interface User {
   avatar_url: string | null;
   is_active: boolean;
   is_verified: boolean;
+  /**
+   * Whether this account has admin privileges. Backend returns this
+   * on the User schema (and on /users/me via the same User model).
+   * Used by the admin panel for the "is_admin" toggle and to gate
+   * admin-only routes in the AppShell.
+   */
+  is_admin?: boolean;
   google_id: string | null;
 }
 

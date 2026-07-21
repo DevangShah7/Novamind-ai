@@ -3,22 +3,12 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { UserPlus, ArrowRight, Check, X, Mail, RefreshCw } from 'lucide-react';
 import { register, resendVerification } from '../lib/api';
+import { getPasswordStrength, passwordIssues, passwordMeetsRules, PASSWORD_MIN_LENGTH } from '../lib/validation';
 import AuthLayout from '../components/AuthLayout';
 import TextField from '../components/TextField';
+import { AnimatedFormPanel } from '../components/auth/AnimatedFormPanel';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function getPasswordStrength(pwd: string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (pwd.length >= 6) score++;
-  if (pwd.length >= 10) score++;
-  if (/[A-Z]/.test(pwd)) score++;
-  if (/[0-9]/.test(pwd)) score++;
-  if (/[^A-Za-z0-9]/.test(pwd)) score++;
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong', 'Excellent'];
-  const colors = ['bg-muted', 'bg-destructive', 'bg-orange-500', 'bg-amber-500', 'bg-emerald-500', 'bg-emerald-600'];
-  return { score, label: labels[score], color: colors[score] };
-}
 
 /**
  * Two-state signup page.
@@ -48,13 +38,22 @@ export default function Signup() {
   const router = useRouter();
 
   const emailErr = email && !EMAIL_RE.test(email) ? 'Enter a valid email' : '';
-  const pwdErr = password && password.length < 6 ? 'At least 6 characters' : '';
+  // Surface only the first rule the user needs to fix — the checklist
+  // below shows all of them with check/cross icons, so the inline
+  // error just needs to nudge them in the right direction.
+  const pwdIssues = passwordIssues(password, email);
+  const pwdErr =
+    password && pwdIssues.length > 0
+      ? pwdIssues.length === 1
+        ? pwdIssues[0]
+        : 'Use at least 8 characters with a letter and a number'
+      : '';
   const confirmErr = confirm && confirm !== password ? "Passwords don't match" : '';
   const strength = getPasswordStrength(password);
 
   const canSubmit =
     EMAIL_RE.test(email) &&
-    password.length >= 6 &&
+    passwordMeetsRules(password, email) &&
     confirm === password &&
     !loading;
 
@@ -106,6 +105,7 @@ export default function Signup() {
         title="Check your inbox"
         subtitle="We've sent a verification link to your email."
       >
+        <AnimatedFormPanel>
         <div className="space-y-5">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -169,6 +169,7 @@ export default function Signup() {
             </button>
           </div>
         </div>
+        </AnimatedFormPanel>
       </AuthLayout>
     );
   }
@@ -179,6 +180,7 @@ export default function Signup() {
       title="Create your account"
       subtitle="Free forever. No credit card. Two minutes to set up."
     >
+      <AnimatedFormPanel>
       <form onSubmit={handleSubmit} className="space-y-4">
         <TextField
           id="email"
@@ -232,16 +234,36 @@ export default function Signup() {
           required
         />
 
-        {/* Password checklist — visible once the user starts typing. */}
+        {/* Password checklist — visible once the user starts typing.
+            Each row turns green as the user satisfies a rule, so they
+            can see exactly which requirements remain before submit is
+            enabled. Mirrors `passwordIssues()` so the icons and the
+            submit gate can never disagree. */}
         {password.length > 0 && (
           <ul className="space-y-1 text-xs text-muted-foreground">
             <li className="flex items-center gap-1.5">
-              {password.length >= 6 ? (
+              {password.length >= PASSWORD_MIN_LENGTH ? (
                 <Check className="h-3.5 w-3.5 text-emerald-500" />
               ) : (
                 <X className="h-3.5 w-3.5 text-muted-foreground" />
               )}
-              At least 6 characters
+              At least {PASSWORD_MIN_LENGTH} characters
+            </li>
+            <li className="flex items-center gap-1.5">
+              {/[A-Za-z]/.test(password) ? (
+                <Check className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              Contains a letter
+            </li>
+            <li className="flex items-center gap-1.5">
+              {/\d/.test(password) ? (
+                <Check className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <X className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              Contains a number
             </li>
             <li className="flex items-center gap-1.5">
               {confirm && confirm === password ? (
@@ -286,6 +308,7 @@ export default function Signup() {
           Sign in
         </Link>
       </p>
+      </AnimatedFormPanel>
     </AuthLayout>
   );
 }

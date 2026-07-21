@@ -83,8 +83,10 @@ export default function ResetPassword() {
             href="/forgot-password"
             className="flex w-full items-center justify-center gap-2 rounded-lg gradient-bg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-lg hover:scale-[1.01] active:scale-[0.99]"
           >
-            Request a new reset link
-            <ArrowRight className="h-4 w-4" />
+            <span className="inline-flex items-center gap-2">
+              Request a new reset link
+              <ArrowRight className="h-4 w-4" />
+            </span>
           </Link>
           <Link
             href="/login"
@@ -171,10 +173,13 @@ export default function ResetPassword() {
       <p className="mt-6 text-center text-sm text-muted-foreground">
         <Link
           href="/login"
+          legacyBehavior
           className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to sign in
+          <a className="inline-flex items-center gap-1">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to sign in
+          </a>
         </Link>
       </p>
     </AuthLayout>

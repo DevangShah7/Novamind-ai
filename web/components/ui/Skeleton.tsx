@@ -1,13 +1,19 @@
 import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
 
-function Skeleton({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) {
+interface SkeletonProps extends HTMLAttributes<HTMLDivElement> {
+  /** Use the slow CSS shimmer instead of the default pulse. Default: false. */
+  shimmer?: boolean;
+}
+
+function Skeleton({ className, shimmer = false, ...props }: SkeletonProps) {
   return (
     <div
-      className={cn('animate-pulse rounded-md bg-muted', className)}
+      className={cn(
+        shimmer ? 'skeleton-shimmer' : 'animate-pulse',
+        'rounded-md bg-muted',
+        className
+      )}
       {...props}
     />
   );

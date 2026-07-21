@@ -19,7 +19,7 @@ def read_users(
     """
     Retrieve users.
     """
-    users = crud.user.get_multi(db, skip=skip, limit=limit)
+    users = crud.user.get_users(db, skip=skip, limit=limit)
     return users
 
 
@@ -27,19 +27,31 @@ def read_users(
 def create_user(
     *,
     db: Session = Depends(deps.get_db),
-    user_in: schemas.UserCreate,
+    user_in: schemas.UserAdminCreate,
     current_user: models.User = Depends(deps.get_current_active_admin),
 ) -> Any:
     """
-    Create new user.
+    Create new user as an admin.
+
+    Admin-created accounts are auto-verified (is_verified=True) so the
+    user can log in immediately without going through the email-verification
+    flow. This is intentional — admins use this path to provision accounts
+    on behalf of users (e.g. enterprise onboarding) where waiting for an
+    email round-trip is friction.
     """
-    user = crud.user.get_by_email(db, email=user_in.email)
+    user = crud.user.get_user_by_email(db, email=user_in.email)
     if user:
         raise HTTPException(
             status_code=400,
             detail="The user with this email already exists in the system.",
         )
-    user = crud.user.create(db, obj_in=user_in)
+    user = crud.user.create_user(db, user=user_in)
+    # Mark the user as verified so they can log in straight away.
+    # The public `/auth/register` flow requires them to click an email
+    # link first; admin-created accounts skip that gate on purpose.
+    user.is_verified = True
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -54,13 +66,13 @@ def update_user(
     """
     Update a user.
     """
-    user = crud.user.get(db, id=user_id)
+    user = crud.user.get_user(db, user_id=user_id)
     if not user:
         raise HTTPException(
             status_code=404,
             detail="The user with this id does not exist in the system",
         )
-    user = crud.user.update(db, db_obj=user, obj_in=user_in)
+    user = crud.user.update_user(db, user_id=user_id, user=user_in)
     return user
 
 
@@ -73,7 +85,7 @@ def read_user_by_id(
     """
     Get a specific user by id.
     """
-    user = crud.user.get(db, id=user_id)
+    user = crud.user.get_user(db, user_id=user_id)
     if not user:
         raise HTTPException(
             status_code=404,
@@ -92,13 +104,13 @@ def delete_user(
     """
     Delete a user.
     """
-    user = crud.user.get(db, id=user_id)
+    user = crud.user.get_user(db, user_id=user_id)
     if not user:
         raise HTTPException(
             status_code=404,
             detail="The user with this id does not exist in the system",
         )
-    user = crud.user.remove(db, id=user_id)
+    user = crud.user.delete_user(db, user_id=user_id)
     return user
 
 

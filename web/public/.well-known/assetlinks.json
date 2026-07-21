@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "ai.novamind.app",
+    "sha256_cert_fingerprints": ["98:F9:6C:0B:29:5C:7D:16:5C:7C:73:F7:A2:3B:02:2D:A2:5C:A5:C0:F2:6D:F0:1F:AF:FA:8C:72:DD:3D:FA:B2"]
+  }
+}]

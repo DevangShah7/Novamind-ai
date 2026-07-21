@@ -33,8 +33,10 @@ export default function NotFound() {
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button asChild>
               <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                Back to home
+                <span className="inline-flex items-center gap-2">
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to home
+                </span>
               </Link>
             </Button>
             <Button asChild variant="outline">

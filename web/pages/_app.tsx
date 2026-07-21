@@ -7,7 +7,8 @@ import AdminLayout from '../components/layout/AdminLayout';
 import ThemeToggle from '../components/ThemeToggle';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Toaster } from '../components/ui/Toaster';
-import { TooltipProvider } from '../components/ui/Tooltip';
+import { ThemeReveal } from '../components/theme/ThemeReveal';
+import { CommandPalette } from '../components/ui/CommandPalette';
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
 
@@ -20,10 +21,10 @@ export default function MyApp({ Component, pageProps }: AppProps) {
   const content = (
     <ThemeProvider>
       <SessionProvider>
-        <TooltipProvider delayDuration={150} skipDelayDuration={0}>
-          <AppRoot Component={Component} pageProps={pageProps} />
-          <Toaster />
-        </TooltipProvider>
+        <AppRoot Component={Component} pageProps={pageProps} />
+        <Toaster />
+        <ThemeReveal />
+        <CommandPalette />
       </SessionProvider>
     </ThemeProvider>
   );

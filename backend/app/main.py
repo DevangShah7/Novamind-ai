@@ -172,6 +172,18 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 from app.api.endpoints.v1_compat import router as v1_compat_router
 app.include_router(v1_compat_router, prefix="/v1", tags=["v1-compat"])
 
+# Product surface — /v1/responses, /v1/vision, /v1/images/generations,
+# /v1/audio/*, /v1/video/generations, /v1/documents. Same engine pool,
+# same auth, same quota gate as the compat surface above.
+from app.api.endpoints.v1_products import router as v1_products_router
+app.include_router(v1_products_router, prefix="/v1", tags=["v1-products"])
+
+# Webhook + organization management — also under /v1/* with API-key auth.
+from app.api.endpoints.webhooks import router as webhooks_router
+app.include_router(webhooks_router, prefix="/v1", tags=["v1-webhooks"])
+from app.api.endpoints.organizations import router as organizations_router
+app.include_router(organizations_router, prefix="/v1", tags=["v1-organizations"])
+
 
 @app.get("/")
 def root():

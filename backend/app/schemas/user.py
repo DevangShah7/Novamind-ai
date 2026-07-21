@@ -58,9 +58,45 @@ class UserCreate(BaseModel):
         return v
 
 
+class UserAdminCreate(BaseModel):
+    """Body for `POST /admin/` — admin-provisioned user creation.
+
+    Re-uses the same password rules as the public `UserCreate` flow
+    (8+ chars, letter + digit, not equal to email) so admins can't
+    create weak accounts. The `is_admin` flag is exposed so admins
+    can promote a colleague without a second round-trip. Email
+    verification is intentionally NOT enforced here — the admin
+    router in `endpoints/admin.py` flips `is_verified=True` on the
+    resulting user so they can log in immediately.
+    """
+    email: EmailStr
+    password: str
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+    is_admin: bool = False
+
+    @validator("password", always=True)
+    def _password_rules(cls, v: str) -> str:
+        return _validate_password(v)
+
+    @validator("password", always=True)
+    def _password_not_email_local_part(cls, v: str, values: Dict[str, Any]) -> str:
+        email = values.get("email")
+        if email and isinstance(email, str) and v.lower() == email.lower():
+            raise ValueError("Password must not match your email")
+        return v
+
+
 class ResendVerificationRequest(BaseModel):
-    """Empty body — the email is read from the authenticated user."""
-    pass
+    """Body for /auth/resend-verification. The endpoint is intentionally
+    unauthenticated: a user who just signed up doesn't have a JWT yet,
+    and they need to be able to ask for the email to be re-sent before
+    they click the link. Rate limiting is enforced at the IP level by
+    the global RATELIMIT_AUTH_PER_MIN middleware (see main.py), and the
+    handler returns the same response whether the email is registered
+    or not so attackers can't enumerate accounts.
+    """
+    email: EmailStr
 
 
 class EmailVerifyRequest(BaseModel):

@@ -117,10 +117,13 @@ export default function PlaygroundPage() {
         <div className="mb-6">
           <Link
             href="/developer"
+            legacyBehavior
             className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to developer portal
+            <a className="inline-flex items-center gap-1">
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to developer portal
+            </a>
           </Link>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">
             API Playground

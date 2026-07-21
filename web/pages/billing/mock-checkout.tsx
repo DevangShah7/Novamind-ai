@@ -142,8 +142,14 @@ export default function MockCheckoutPage() {
                 This page is only reachable from the mock-mode checkout flow.
                 Start at the pricing page to see it in action.
               </p>
-              <Link href="/pricing" className="mt-4 inline-block">
-                <Button>Back to pricing</Button>
+              <Link
+                href="/pricing"
+                legacyBehavior
+                className="mt-4 inline-block"
+              >
+                <a>
+                  <Button>Back to pricing</Button>
+                </a>
               </Link>
             </CardContent>
           </Card>
@@ -220,10 +226,13 @@ export default function MockCheckoutPage() {
                   </Button>
                   <Link
                     href="/pricing"
+                    legacyBehavior
                     className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                   >
-                    <ArrowLeft className="h-3.5 w-3.5" />
-                    Cancel and go back
+                    <a className="flex w-full items-center justify-center gap-1.5">
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      Cancel and go back
+                    </a>
                   </Link>
                 </div>
               )}

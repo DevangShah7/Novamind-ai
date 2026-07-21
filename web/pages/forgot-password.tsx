@@ -74,10 +74,13 @@ export default function ForgotPassword() {
 
           <Link
             href="/login"
+            legacyBehavior
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-all hover:bg-muted"
           >
-            <ArrowLeft className="h-4 w-4" />
-            Back to sign in
+            <a className="flex w-full items-center justify-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to sign in
+            </a>
           </Link>
         </div>
       </AuthLayout>
