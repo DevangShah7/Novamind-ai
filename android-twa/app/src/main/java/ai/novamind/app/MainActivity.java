@@ -13,6 +13,6 @@ public class MainActivity extends LauncherActivity {
     protected Uri getLaunchingUrl() {
         // Live Vercel deployment. Update this if you redeploy under a new
         // domain. For local testing, point to http://10.0.2.2:8000 instead.
-        return Uri.parse("https://web-ivory-eta-87.vercel.app");
+        return Uri.parse("https://novamind-ai-kappa.vercel.app");
     }
 }

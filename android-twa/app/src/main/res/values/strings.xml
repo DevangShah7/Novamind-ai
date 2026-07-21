@@ -12,13 +12,13 @@
           \"relation\": [\"delegate_permission/common.handle_all_urls\"],
           \"target\": {
             \"namespace\": \"web\",
-            \"site\": \"https://web-ivory-eta-87.vercel.app\"
+            \"site\": \"https://novamind-ai-kappa.vercel.app\"
           }
         },{
           \"relation\": [\"delegate_permission/common.handle_all_urls\"],
           \"target\": {
             \"namespace\": \"web\",
-            \"site\": \"https://efficiently-vital-handed-habits.trycloudflare.com\"
+            \"site\": \"https://novamind-o84uf14uu-devangshah7s-projects.vercel.app\"
           }
         }]
     </string>
