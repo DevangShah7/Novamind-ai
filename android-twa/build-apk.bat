@@ -68,13 +68,16 @@ if not exist "%BUILD%\dex\classes.dex" (
   echo ERROR: dex did not produce classes.dex
   goto :fail
 )
+echo CHECKPOINT: dex done, before step 5
 
 echo === [5/7] Add classes.dex to APK ===
 del /q "%BUILD%\classes.dex" 2>nul
 del /q "%BUILD%\unaligned.apk" 2>nul
 copy /b "%BUILD%\dex\classes.dex" "%BUILD%\classes.dex" >nul
-REM Use PowerShell to inject classes.dex into the zip with a proper entry
-powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; \$z=[System.IO.Compression.ZipFile]::Open('%BUILD%\linked-res.apk','Update'); \$e=\$z.CreateEntry('classes.dex'); \$w=New-Object System.IO.BinaryWriter(\$e.Open()); \$w.Write([System.IO.File]::ReadAllBytes('%BUILD%\dex\classes.dex')); \$w.Close(); \$z.Dispose()"
+REM Inject classes.dex into the zip via a separate .ps1 file. Inline
+REM PowerShell from cmd strips $variables when the path contains
+REM special characters, so a .ps1 file is the only reliable form.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%BUILD%\inject-dex.ps1" -ApkPath "%BUILD%\linked-res.apk" -DexPath "%BUILD%\dex\classes.dex"
 if errorlevel 1 goto :fail
 if not exist "%BUILD%\outputs" mkdir "%BUILD%\outputs"
 copy /y "%BUILD%\linked-res.apk" "%BUILD%\unaligned.apk" >nul
@@ -87,6 +90,9 @@ if errorlevel 1 goto :fail
 
 echo === [7/7] Sign with apksigner ===
 del /q "%OUT%" 2>nul
+REM apksigner is apksigner.bat on this build-tools; cmd resolves it
+REM via PATHEXT. We do NOT call apksigner.exe directly because the
+REM real binary is the .bat wrapper, which sets up classpath first.
 apksigner sign ^
   --ks "%ROOT%debug.keystore" ^
   --ks-pass pass:android ^
