@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { getChats, createChat, isMockMode } from '../../lib/api';
 import ChatList from '../../components/ChatList';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
-import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2 } from 'lucide-react';
+import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2, FileText, Presentation, Image as ImageIcon } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
 import { ThinkingOrb } from '../../components/chat/ThinkingOrb';
@@ -31,8 +32,9 @@ export default function ChatListPage() {
 
   useEffect(() => {
     setMounted(true);
-    loadChats();
-  }, []);
+    if (user) loadChats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const loadChats = async () => {
     setLoading(true);
@@ -81,7 +83,10 @@ export default function ChatListPage() {
   }
 
   if (!user) {
-    router.replace('/login');
+    // Redirect with the dev-error marker so /login can show the actual
+    // fetch error (silent redirects have been the #1 source of confusion
+    // when the dev tunnel rotates underneath the SPA).
+    router.replace('/login?dev_error=1');
     return null;
   }
 
@@ -145,6 +150,32 @@ export default function ChatListPage() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </button>
             </form>
+
+            {/* Quick links to the document / image generators */}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium">Quick tools:</span>
+              <Link
+                href={`/tools?kind=pdf&prompt=${encodeURIComponent(title)}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 hover:border-primary/40 hover:text-primary"
+                legacyBehavior={false}
+              >
+                <FileText className="h-3 w-3" /> PDF
+              </Link>
+              <Link
+                href={`/tools?kind=pptx&prompt=${encodeURIComponent(title)}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 hover:border-primary/40 hover:text-primary"
+                legacyBehavior={false}
+              >
+                <Presentation className="h-3 w-3" /> Slides
+              </Link>
+              <Link
+                href={`/tools?kind=image&prompt=${encodeURIComponent(title)}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 hover:border-primary/40 hover:text-primary"
+                legacyBehavior={false}
+              >
+                <ImageIcon className="h-3 w-3" /> Image
+              </Link>
+            </div>
 
             {/* Example prompt chips */}
             <StaggerChildren className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2" delay={0.1} gap={0.06}>
