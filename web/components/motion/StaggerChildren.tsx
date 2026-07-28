@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { ReactNode } from 'react';
 import { useReducedMotionSafe } from './useReducedMotionSafe';
-import { fadeUp, staggerParent, EASE_OUT, DUR } from '../../lib/motion';
+import { fadeUp, staggerParent, EASE_OUT, EASE_OUT_BACK, DUR } from '../../lib/motion';
 
 interface StaggerChildrenProps {
   children: ReactNode;
@@ -66,11 +66,14 @@ interface StaggerItemProps {
  */
 export function StaggerItem({ children, className, as = 'div', scaleIn: useScale = false }: StaggerItemProps) {
   const Comp = motion[as] as typeof motion.div;
-  // Scale-in variant reuses the same transition shape.
+  // Scale-in variant reuses the same transition shape. Reusing the
+  // typed constant from lib/motion (rather than an inline literal) keeps
+  // framer-motion@12's stricter Easing type happy — TS would otherwise
+  // widen `[0.34, 1.56, 0.64, 1]` to `number[]` and fail the build.
   const variants = useScale
     ? {
         hidden: { opacity: 0, scale: 0.96 },
-        visible: { opacity: 1, scale: 1, transition: { duration: DUR.base, ease: [0.34, 1.56, 0.64, 1] } },
+        visible: { opacity: 1, scale: 1, transition: { duration: DUR.base, ease: EASE_OUT_BACK } },
       }
     : fadeUp;
   return (

@@ -73,12 +73,25 @@ class Settings(BaseSettings):
     STRIPE_PRICE_BUSINESS: str = ""
     # Where Stripe should redirect back to after a successful checkout.
     # Defaults to the Vercel production URL; override in dev.
-    PUBLIC_SITE_URL: str = "https://web-ivory-eta-87.vercel.app"
+    PUBLIC_SITE_URL: str = "https://novamind-ai-kappa.vercel.app"
 
     # ---------- AI models ----------
     # The default Ollama model to use for chat when the user doesn't
     # pick one. List others via `GET /api/v1/models`.
     DEFAULT_MODEL: str = "llama3.2:3b"
+
+    # ---------- Local NovaMind foundation model (opt-in) ----------
+    # When NOVA_LOCAL_ENABLED=1, the backend exposes ``NovaMind-Neural``
+    # in the model picker and routes chat-completions to the in-process
+    # engine loaded from the safetensors at NOVA_LOCAL_WEIGHTS. The
+    # chat handlers read these via ``os.environ`` (not Settings), so
+    # ``app.main`` also propagates them to ``os.environ`` on startup.
+    NOVA_LOCAL_ENABLED: bool = False
+    NOVA_LOCAL_WEIGHTS: str = ""
+    NOVA_LOCAL_TOKENIZER: str = ""
+    NOVA_LOCAL_CONFIG: str = "tiny"
+    NOVA_LOCAL_MAX_TOKENS: int = 256
+    NOVA_LOCAL_TEMPERATURE: float = 0.8
 
     # ---------- Frontend (for email link generation) ----------
     # Where the email verification / password reset links point.

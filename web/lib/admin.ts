@@ -1,4 +1,4 @@
-import { ApiKey, User } from '../types';
+import { ApiKey, ApiKeyUsage, ApiKeyUsageSummary, User } from '../types';
 import { getChats, createChat } from './api';
 import { extractErrorMessage } from './validation';
 
@@ -79,7 +79,18 @@ export const getApiKeys = async (): Promise<ApiKey[]> => {
   return res.json();
 };
 
-export const createApiKey = async (name: string, description?: string): Promise<ApiKey> => {
+export const createApiKey = async (
+  name: string,
+  description?: string,
+  extras?: {
+    expires_at?: string | null;
+    ip_allowlist?: string[] | null;
+    domain_allowlist?: string[] | null;
+    tags?: string[] | null;
+    monthly_token_limit?: number | null;
+    monthly_request_limit?: number | null;
+  }
+): Promise<ApiKey> => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_URL}/api-keys/`, {
     method: 'POST',
@@ -87,17 +98,56 @@ export const createApiKey = async (name: string, description?: string): Promise<
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, ...(extras || {}) }),
   });
   if (!res.ok) {
-    throw new Error('Failed to create API key');
+    throw new Error(await extractErrorMessage(res, 'Failed to create API key'));
+  }
+  return res.json();
+};
+
+export const rotateApiKey = async (keyId: number): Promise<ApiKey> => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/api-keys/${keyId}/rotate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to rotate API key'));
+  }
+  return res.json();
+};
+
+export const getApiKey = async (keyId: number): Promise<ApiKey> => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/api-keys/${keyId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to fetch API key'));
   }
   return res.json();
 };
 
 export const updateApiKey = async (
   keyId: number,
-  updates: Partial<{ name: string; description: string; is_active: boolean; expires_at: string }>
+  updates: Partial<{
+    name: string;
+    description: string | null;
+    is_active: boolean;
+    is_disabled: boolean;
+    disable_reason: string | null;
+    expires_at: string | null;
+    ip_allowlist: string[] | null;
+    domain_allowlist: string[] | null;
+    tags: string[] | null;
+    monthly_token_limit: number | null;
+    monthly_request_limit: number | null;
+  }>
 ): Promise<ApiKey> => {
   const token = localStorage.getItem('token');
   const res = await fetch(`${API_URL}/api-keys/${keyId}`, {
@@ -109,7 +159,36 @@ export const updateApiKey = async (
     body: JSON.stringify(updates),
   });
   if (!res.ok) {
-    throw new Error('Failed to update API key');
+    throw new Error(await extractErrorMessage(res, 'Failed to update API key'));
+  }
+  return res.json();
+};
+
+export const getApiKeyUsageSummary = async (): Promise<ApiKeyUsageSummary> => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/api-keys/usage/summary`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to fetch usage summary'));
+  }
+  return res.json();
+};
+
+export const getApiKeyUsage = async (
+  keyId: number,
+  limit = 50
+): Promise<ApiKeyUsage> => {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}/api-keys/${keyId}/usage?limit=${limit}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to fetch per-key usage'));
   }
   return res.json();
 };

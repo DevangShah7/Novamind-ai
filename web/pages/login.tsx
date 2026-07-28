@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { LogIn, Sparkles, Mail, Lock, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { login, googleLogin, isMockMode } from '../lib/api';
+import { LogIn, Sparkles, Mail, Lock, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { login, googleLogin } from '../lib/api';
 import AuthLayout from '../components/AuthLayout';
 import TextField from '../components/TextField';
 import GoogleButton from '../components/GoogleButton';
@@ -17,9 +17,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   // Transient banner shown when the user lands here from
-  // /verify-email?token=... (registered=1) or /reset-password success.
+  // /verify-email?token=... (registered=1) or /reset-password success,
+  // or when the dev auto-bypass just failed (dev_error=1).
   // Auto-dismisses after 6 s.
   const [banner, setBanner] = useState<string | null>(null);
+  const [devError, setDevError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -31,8 +33,15 @@ export default function Login() {
     } else if (router.query.reset === '1') {
       setBanner('Password updated — sign in with your new password.');
       router.replace('/login', undefined, { shallow: true });
+    } else if (router.query.dev_error === '1') {
+      const detail = typeof window !== 'undefined'
+        ? window.localStorage.getItem('novamind_dev_bypass_error')
+        : null;
+      setDevError(detail || 'Dev auto-bypass failed — sign in manually below.');
+      // Clean the URL
+      router.replace('/login', undefined, { shallow: true });
     }
-  }, [router.isReady, router.query.registered, router.query.reset, router]);
+  }, [router.isReady, router.query.registered, router.query.reset, router.query.dev_error, router]);
 
   useEffect(() => {
     if (!banner) return;
@@ -92,6 +101,15 @@ export default function Login() {
           <div className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-700 dark:text-emerald-300 animate-fade-in">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{banner}</span>
+          </div>
+        )}
+        {devError && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-800 dark:text-amber-200 animate-fade-in">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">Auto sign-in failed</p>
+              <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">{devError}</p>
+            </div>
           </div>
         )}
         <TextField
@@ -160,25 +178,24 @@ export default function Login() {
 
       <GoogleButton onCredential={handleGoogleCredential} loading={googleLoading} />
 
-      {/* Demo mode helper — only visible when running on the mock backend. */}
-      {isMockMode && (
-        <button
-          type="button"
-          onClick={fillDemo}
-          className="mt-4 flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
-        >
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Try the demo account</p>
-            <p className="text-xs text-muted-foreground truncate">
-              admin@novamind.ai / admin123
-            </p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-        </button>
-      )}
+      {/* Demo helper — always shown in production so users have a
+          one-click path to a working account if auto-bypass is flaky. */}
+      <button
+        type="button"
+        onClick={fillDemo}
+        className="mt-4 flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
+      >
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground">Try the demo account</p>
+          <p className="text-xs text-muted-foreground truncate">
+            admin@novamind.ai / admin123
+          </p>
+        </div>
+        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+      </button>
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{' '}

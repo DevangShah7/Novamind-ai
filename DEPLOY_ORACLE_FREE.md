@@ -87,7 +87,7 @@ echo "Your SECRET_KEY: $SECRET"
 sudo -u novamind bash -c "cat > /opt/novamind/backend/.env <<EOF
 SECRET_KEY=$SECRET
 DATABASE_URL=sqlite:///./novamind.db
-BACKEND_CORS_ORIGINS=https://web-ivory-eta-87.vercel.app,http://localhost:3000
+BACKEND_CORS_ORIGINS=https://novamind-ai-kappa.vercel.app,http://localhost:3000
 EOF"
 chmod 600 /opt/novamind/backend/.env
 ```

@@ -80,9 +80,58 @@ export interface ApiKey {
   name: string;
   description: string | null;
   is_active: boolean;
+  /** True when an admin or the owner has explicitly disabled the key.
+   *  `is_active === false` covers both "disabled" and "expired/never-active";
+   *  `is_disabled` is the explicit-disable signal. */
+  is_disabled?: boolean;
+  disable_reason?: string | null;
   expires_at: string | null;
   last_used_at: string | null;
   usage_count: number;
+  ip_allowlist?: string[] | null;
+  domain_allowlist?: string[] | null;
+  tags?: string[] | null;
+  organization?: string | null;
+  monthly_token_limit?: number | null;
+  monthly_request_limit?: number | null;
+  monthly_token_count?: number;
+  monthly_request_count?: number;
+  monthly_cost_usd?: number;
   created_at: string;
   updated_at: string;
 }
+
+export interface ApiKeyUsageSummary {
+  total_requests: number;
+  today_requests: number;
+  month_requests: number;
+  total_tokens_used: number;
+  today_tokens_used: number;
+  month_tokens_used: number;
+  average_response_time_ms: number;
+  top_endpoints?: { endpoint: string; count: number }[];
+}
+
+export interface ApiKeyUsagePoint {
+  date: string;
+  requests: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+export interface ApiKeyUsageEvent {
+  id: number;
+  user_id: number;
+  api_key_id: number;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  ip_address: string | null;
+  user_agent: string | null;
+  response_time_ms: number | null;
+  tokens_used: number | null;
+  model_used: string | null;
+  created_at: string;
+}
+
+export type ApiKeyUsage = ApiKeyUsageEvent[];

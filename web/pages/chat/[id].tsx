@@ -38,9 +38,12 @@ export default function ChatPage() {
     if (!chatId || typeof chatId !== 'string') {
       return;
     }
-    loadChat();
-    loadMessages();
-  }, [chatId]);
+    if (user) {
+      loadChat();
+      loadMessages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, user]);
 
   // Mock backend fires 'mock:message-added' when an async assistant
   // reply lands. Real backends do this over WebSockets / SSE in the future.
@@ -165,7 +168,9 @@ export default function ChatPage() {
   }
 
   if (!user) {
-    router.replace('/login');
+    // Same banner-surface hack as /chat — carry the dev-bypass error to
+    // /login so the user can read what actually went wrong.
+    router.replace('/login?dev_error=1');
     return null;
   }
 

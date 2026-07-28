@@ -5,7 +5,7 @@
   "who built you": "NovaMind AI was built by Devang Shah.",
   "are you free": "Yes — NovaMind local engine is free, runs offline, and doesn't call any paid API.",
   "is this free": "Yes. The local engine is free and runs on the same machine as the backend.",
-  "pricing": "NovaMind local engine has no cost — it runs in-process on the backend. The hosted demo at web-ivory-eta-87.vercel.app is also free.",
+  "pricing": "NovaMind local engine has no cost — it runs in-process on the backend. The hosted demo at novamind-ai-kappa.vercel.app is also free.",
   "what model are you": "I'm the NovaMind local engine (rule-based, v1). I'm not a foundation model. I match user messages to handlers for math, time/date, FAQ, code snippets, and conversation metadata, and fall back to a clear 'I don't know' message otherwise.",
   "what model": "NovaMind local engine v1 — rule-based, no external API.",
   "are you gpt": "No. I'm not GPT, Claude, Gemini, or any other foundation model. I'm a small rule-based engine that handles FAQs, math, time/date, code snippets, and conversation summaries. The frontend (NovaMind AI) was built by Devang Shah.",
