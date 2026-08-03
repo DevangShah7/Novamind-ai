@@ -44,69 +44,83 @@ class ImageRequest(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# SDXL pipeline — warmed in a background task at startup so the first
-# user request never pays the ~10s torch + diffusers import cost.
+# Stable Diffusion pipeline — warmed in a background task at startup
+# so the first user request never pays the ~10s torch + diffusers
+# import cost.
 #
-# The diffusers import alone takes ~10s on a warm Python interpreter,
-# which the browser sees as ERR_FAILED on the very first image request.
-# Doing the load in lifespan avoids that — by the time any user hits
-# /documents/image, the pipe is either loaded (GPU path) or the load
-# error is recorded (SVG fallback, no retry storm).
+# Why SD 1.5 and not SDXL:
+#   SDXL base is ~6.9 GB at fp16; the host has an 8.5 GB RTX 5060.
+#   Inference needs more than that (cross-attention activations,
+#   text encoder, etc.) and CUDA OOMs. The fallback path then runs
+#   and just prints the prompt on a gradient — not a real image.
+#
+#   SD 1.5 base is ~4 GB at fp16 and fits comfortably. Inference at
+#   512x512 takes ~10-15s on this GPU. We use attention slicing
+#   and VAE tiling to keep peak VRAM under 5 GB.
+#
+# The SVG fallback is still wired in as a last resort — if torch /
+# diffusers / CUDA all fail, the user at least gets a deterministic
+# poster rather than a 500.
 # ─────────────────────────────────────────────────────────────────────────
-_SDXL_PIPE = None
-_SDXL_LOAD_ERROR: Optional[str] = None
+_SD_PIPE = None
+_SD_LOAD_ERROR: Optional[str] = None
+_SD_MODEL_ID = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
 
 def warm_sdxl_pipeline() -> None:
-    """Load the SDXL pipeline at startup, in a worker thread.
+    """Load Stable Diffusion 1.5 at startup, in a worker thread.
 
     Safe to call multiple times — once a load succeeds or fails, the
     result is cached and subsequent calls are no-ops.
+
+    Note: name kept as ``warm_sdxl_pipeline`` for compatibility with
+    the lifespan hook in app/main.py. The actual model is SD 1.5.
     """
-    global _SDXL_PIPE, _SDXL_LOAD_ERROR
-    if _SDXL_PIPE is not None or _SDXL_LOAD_ERROR is not None:
+    global _SD_PIPE, _SD_LOAD_ERROR
+    if _SD_PIPE is not None or _SD_LOAD_ERROR is not None:
         return
     try:
         import torch
         if not torch.cuda.is_available():
-            _SDXL_LOAD_ERROR = "cuda unavailable"
-            logger.info("sdxl: cuda unavailable, will fall back to svg")
+            _SD_LOAD_ERROR = "cuda unavailable"
+            logger.info("sd: cuda unavailable, will fall back to svg")
             return
-        from diffusers import StableDiffusionXLPipeline
-        model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-        logger.info("sdxl: loading %s on cuda", model_id)
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            model_id,
+        from diffusers import StableDiffusionPipeline
+        logger.info("sd: loading %s on cuda", _SD_MODEL_ID)
+        pipe = StableDiffusionPipeline.from_pretrained(
+            _SD_MODEL_ID,
             torch_dtype=torch.float16,
-            variant="fp16",
-            use_safetensors=True,
+            safety_checker=None,  # local model; safety is the app's job
+            requires_safety_checker=False,
         )
         pipe = pipe.to("cuda")
-        pipe.enable_attention_slicing()
+        # Memory savers — keep peak VRAM well under 5 GB so we never
+        # OOM mid-inference on the 8 GB card.
+        pipe.enable_attention_slicing("max")
         try:
-            pipe.enable_xformers_memory_efficient_attention()
+            pipe.enable_vae_tiling()
         except Exception:
-            pass  # xformers optional on Blackwell
-        _SDXL_PIPE = pipe
-        logger.info("sdxl: ready")
+            pass  # tiling is optional
+        _SD_PIPE = pipe
+        logger.info("sd: ready (model=%s)", _SD_MODEL_ID)
     except Exception as e:
-        _SDXL_LOAD_ERROR = f"{type(e).__name__}: {e}"
-        logger.warning("sdxl: load failed (%s); will fall back to svg", e)
+        _SD_LOAD_ERROR = f"{type(e).__name__}: {e}"
+        logger.warning("sd: load failed (%s); will fall back to svg", e)
 
 
 def _try_load_sdxl():
-    """Return the warmed SDXL pipeline if available, else None.
+    """Return the warmed SD pipeline if available, else None.
 
     The pipeline is loaded at startup via ``warm_sdxl_pipeline`` so
     this is just a cache lookup in steady state. Kept as a fallback
     so a worker that never went through lifespan (e.g. tests) can
     still trigger a load.
     """
-    global _SDXL_PIPE, _SDXL_LOAD_ERROR
-    if _SDXL_PIPE is not None or _SDXL_LOAD_ERROR is not None:
-        return _SDXL_PIPE
+    global _SD_PIPE, _SD_LOAD_ERROR
+    if _SD_PIPE is not None or _SD_LOAD_ERROR is not None:
+        return _SD_PIPE
     warm_sdxl_pipeline()
-    return _SDXL_PIPE
+    return _SD_PIPE
 
 
 @router.post("/image")
@@ -116,9 +130,10 @@ async def generate_image(
 ):
     """Render a prompt as an image.
 
-    Tries GPU SDXL first (real 1024×1024 PNG, ~10s on RTX 5060).
-    Falls back to the deterministic SVG poster when diffusers/torch
-    can't load (OS policy block, missing CUDA, no model cache).
+    Tries GPU Stable Diffusion 1.5 first (real 512×512 PNG, ~10-15s
+    on RTX 5060 with attention slicing). Falls back to the deterministic
+    SVG poster when diffusers/torch/CUDA can't load or inference OOMs
+    (last-resort safety net, not the happy path).
     """
     pipe = _try_load_sdxl()
     if pipe is not None:
@@ -131,12 +146,14 @@ async def generate_image(
             )
 
             def _infer():
+                # SD 1.5 native resolution; 20 steps is the sweet spot
+                # for quality/speed on the 8 GB card.
                 return pipe(
                     prompt=prompt,
-                    num_inference_steps=25,
+                    num_inference_steps=20,
                     guidance_scale=7.5,
-                    height=1024,
-                    width=1024,
+                    height=512,
+                    width=512,
                     generator=generator,
                 )
             # Run inference in a worker thread so we don't block the event loop
@@ -150,11 +167,11 @@ async def generate_image(
                 headers={
                     "Content-Disposition": 'inline; filename="novamind-image.png"',
                     "Cache-Control": "public, max-age=3600",
-                    "X-Generator": "sdxl-base-1.0",
+                    "X-Generator": "sd-v1-5",
                 },
             )
         except Exception as e:
-            logger.warning("sdxl inference failed, falling back to svg: %s", e)
+            logger.warning("sd inference failed, falling back to svg: %s", e)
 
     # Fallback: deterministic SVG poster
     svg = _build_svg_poster(req.prompt, style=req.style or "")

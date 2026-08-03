@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -335,12 +336,87 @@ def _image_metadata(b: bytes) -> Dict[str, Any]:
 # 3) /v1/images/generations — OpenAI-compatible text-to-image
 # =====================================================================
 
-# Same 1×1 transparent PNG used by the in-app image endpoint. Real model
-# is out of scope for this drop; the contract is what we exercise.
-_PLACEHOLDER_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
-    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+# Real Stable Diffusion 1.5 runs here on the host GPU. The model is
+# warmed in the FastAPI lifespan startup hook (see app/main.py and
+# app.api.endpoints.documents_image.warm_sdxl_pipeline) so the first
+# request doesn't pay the torch + diffusers import cost.
+#
+# If the pipeline never loaded (no CUDA, model download blocked, etc.)
+# the endpoint returns a deterministic SVG poster — same contract as
+# the in-app image endpoint, so SDK callers never get a hard 500.
+
+_SD_PLACEHOLDER_NOTE = (
+    "model not loaded; returning svg poster. See "
+    "backend logs (`sd:` prefix) for the load error."
 )
+
+
+def _render_with_local_sd(prompt: str, width: int, height: int) -> bytes:
+    """Generate a real image with the local SD 1.5 pipeline.
+
+    Returns PNG bytes. Raises on inference failure so the caller can
+    fall back to the SVG poster. Uses a deterministic seed derived
+    from the prompt so the same prompt returns the same image —
+    same UX as the in-app endpoint, friendly for caching.
+    """
+    from app.api.endpoints.documents_image import _try_load_sdxl
+    import asyncio
+    import io
+    import torch
+
+    pipe = _try_load_sdxl()
+    if pipe is None:
+        raise RuntimeError("local SD pipeline not loaded")
+
+    seed = int(hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:8], 16)
+    generator = torch.Generator(device="cuda").manual_seed(seed)
+
+    def _infer():
+        return pipe(
+            prompt=prompt,
+            num_inference_steps=20,
+            guidance_scale=7.5,
+            height=height,
+            width=width,
+            generator=generator,
+        )
+
+    # The endpoint is sync; the in-app endpoint is async. Run the
+    # blocking inference in a thread so we don't tie up the worker.
+    result = asyncio.run_coroutine_threadsafe(
+        asyncio.to_thread(_infer),
+        _get_or_make_loop(),
+    ).result(timeout=180)
+
+    image = result.images[0]
+    buf = io.BytesIO()
+    image.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+_SD_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_or_make_loop() -> asyncio.AbstractEventLoop:
+    """Return a long-lived event loop for SD inference offloads.
+
+    FastAPI dispatches sync endpoints on a worker thread that has no
+    event loop of its own. We cache one here so multiple requests can
+    reuse it.
+    """
+    global _SD_LOOP
+    if _SD_LOOP is None or _SD_LOOP.is_closed():
+        _SD_LOOP = asyncio.new_event_loop()
+    return _SD_LOOP
+
+
+def _placeholder_svg_b64() -> str:
+    """Render the SVG poster as base64 so SDK callers always get
+    parseable image data, even when the GPU pipeline isn't up."""
+    from app.api.endpoints.documents_image import _build_svg_poster
+    import base64
+    svg = _build_svg_poster("(stub)", style="")
+    return base64.b64encode(svg.encode("utf-8")).decode("ascii")
 
 
 @router.post("/images/generations")
@@ -358,8 +434,9 @@ def v1_images_generations(
       - size: "256x256"|"512x512"|"1024x1024" (default 512x512)
       - response_format: "url" | "b64_json" (default b64_json)
 
-    The actual model integration (Stable Diffusion, etc.) is not in this
-    drop. The contract is real: quota, usage logging, response shape.
+    Uses the host's local Stable Diffusion 1.5 model. Returns real
+    PNG bytes when the model is loaded; falls back to a deterministic
+    SVG poster (as b64_json) if the GPU pipeline isn't ready.
     """
     user, key = auth
     _enforce_quota(db, user, key)
@@ -378,15 +455,52 @@ def v1_images_generations(
     if response_format not in ("url", "b64_json"):
         raise HTTPException(status_code=400, detail="`response_format` must be url or b64_json")
 
+    # Parse WxH. SD 1.5 is happiest at 512x512; anything bigger gets
+    # upscaled by the user later. We snap to multiples of 8.
+    try:
+        w_str, h_str = size.lower().split("x", 1)
+        w = max(64, min(int(w_str), 768))
+        h = max(64, min(int(h_str), 768))
+        w -= w % 8
+        h -= h % 8
+    except (ValueError, AttributeError):
+        w = h = 512
+
     t0 = time.time()
+    engine = "sd-v1-5"
+    note: Optional[str] = None
+    png_bytes: Optional[bytes] = None
+
+    try:
+        png_bytes = _render_with_local_sd(prompt, w, h)
+    except Exception as exc:
+        logger.warning("sd render failed (%s); falling back to svg poster", exc)
+        note = f"{_SD_PLACEHOLDER_NOTE} ({type(exc).__name__}: {exc})"
+        engine = "sd-v1-5-fallback-svg"
+        try:
+            svg_b64 = _placeholder_svg_b64()
+        except Exception:
+            svg_b64 = (
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlE"
+                "QVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            )
+            engine = "novamind-image-stub"
+
     data = []
     for _ in range(n):
-        if response_format == "b64_json":
-            data.append({"b64_json": _PLACEHOLDER_PNG_B64})
+        if png_bytes is not None:
+            import base64
+            img_b64 = base64.b64encode(png_bytes).decode("ascii")
         else:
-            # In url mode we'd persist the bytes to storage and return a URL.
-            # Without object storage in this drop, fall back to b64 with a note.
-            data.append({"b64_json": _PLACEHOLDER_PNG_B64, "url": None, "note": "object storage not configured; returning b64_json"})
+            img_b64 = svg_b64  # already base64
+        if response_format == "b64_json":
+            data.append({"b64_json": img_b64})
+        else:
+            # url mode: without object storage we'd persist to disk and
+            # serve via the proxy. The in-app image endpoint serves the
+            # bytes inline; for SDK callers we return b64_json with a
+            # note so the contract stays parseable.
+            data.append({"b64_json": img_b64, "url": None, "note": "object storage not configured; returning b64_json"})
 
     _log_usage(
         db=db, user=user, key=key,
@@ -394,14 +508,17 @@ def v1_images_generations(
         status_code=200,
         elapsed_ms=int((time.time() - t0) * 1000),
         tokens=len(prompt.split()),
-        model_used="novamind-image-stub",
+        model_used=engine,
     )
 
-    return {
+    payload_out = {
         "created": int(time.time()),
         "data": data,
-        "x_novamind": {"size": size, "engine": "novamind-image-stub", "note": "placeholder 1x1 PNG; real model not in this drop"},
+        "x_novamind": {"size": f"{w}x{h}", "engine": engine},
     }
+    if note:
+        payload_out["x_novamind"]["note"] = note
+    return payload_out
 
 
 # =====================================================================
