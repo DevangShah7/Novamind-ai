@@ -100,7 +100,8 @@ function Test-FrontendUp {
 
 # The proxy preserves the backend's /api/v1 prefix; probe a known
 # backend route. Any HTTP response (401 / 422 / etc.) means proxy+backend
-# both reachable.
+# both reachable. We hit /api/v1/auth/login (POST) because that exercises
+# the prefix-preserving path the proxy is responsible for.
 function Test-ProxyUp {
     try {
         $req = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$ProxyPort/api/v1/auth/login")

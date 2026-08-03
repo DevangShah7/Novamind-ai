@@ -33,14 +33,14 @@ try {
 }
 finally { Pop-Location }
 
-# Wait for /health probe via the proxy (200 = up)
+# Wait for /health probe via the proxy (200 = up).
+# The proxy preserves the path, so /health hits FastAPI's root /health.
 $ok = $false
 for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 1
     try {
-        # The proxy doesn't expose /health of its own; ping through it.
-        $r = Invoke-WebRequest "http://127.0.0.1:$port/api/v1/health" -UseBasicParsing -TimeoutSec 2
-        if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500) { $ok = $true; break }
+        $r = Invoke-WebRequest "http://127.0.0.1:$port/health" -UseBasicParsing -TimeoutSec 2
+        if ($r.StatusCode -eq 200) { $ok = $true; break }
     } catch { }
 }
 

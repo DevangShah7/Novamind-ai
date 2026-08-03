@@ -1,7 +1,8 @@
 """Tiny path-based reverse proxy.
 
 Routes:
-  /api/v1/*  -> http://127.0.0.1:8000/api/v1/*   (FastAPI backend, prefix preserved)
+  /api/v1/*  -> http://127.0.0.1:8000/api/v1/*   (FastAPI API router, prefix preserved)
+  /v1/*      -> http://127.0.0.1:8000/v1/*       (OpenAI-compat endpoints, prefix preserved)
   /*          -> http://127.0.0.1:3000/*           (Next.js frontend)
 
 Runs on 127.0.0.1:7000. Tailscale Funnel points at this port so a single
@@ -47,9 +48,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _proxy(self, method: str):
         path = self.path
-        if path.startswith("/api/v1"):
-            # FastAPI's API_V1_STR is /api/v1 — forward the full path so
-            # its include_router(prefix='/api/v1') matches.
+        # Backend routes: FastAPI's /api/v1 (app/api/v1.py), the parallel
+        # OpenAI-compat surface at /v1 (app/api/v1_compat.py +
+        # v1_products.py), and the top-level /health endpoint. Forward the
+        # full path so the include_router prefixes match.
+        if (path.startswith("/api/v1")
+                or path.startswith("/v1/")
+                or path == "/health"
+                or path.startswith("/health?")):
             target = BACKEND + path
         else:
             target = FRONTEND + path
@@ -108,7 +114,7 @@ def main():
     server = ThreadingHTTPServer(LISTEN, ProxyHandler)
     sys.stderr.write(
         f"[proxy] listening on {LISTEN[0]}:{LISTEN[1]}  "
-        f"(api/v1 -> {BACKEND}, /* -> {FRONTEND})\n"
+        f"(api/v1 + /v1 -> {BACKEND}, /* -> {FRONTEND})\n"
     )
     sys.stderr.flush()
     try:

@@ -10,7 +10,6 @@ infrastructure, no parallel API universe.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import io
@@ -358,9 +357,13 @@ def _render_with_local_sd(prompt: str, width: int, height: int) -> bytes:
     fall back to the SVG poster. Uses a deterministic seed derived
     from the prompt so the same prompt returns the same image —
     same UX as the in-app endpoint, friendly for caching.
+
+    FastAPI runs sync endpoints on a worker thread, so we can call the
+    blocking SD pipeline directly. Each request blocks its worker for
+    ~5-10s of inference, which uvicorn handles with its default thread
+    pool. No asyncio loop gymnastics needed.
     """
     from app.api.endpoints.documents_image import _try_load_sdxl
-    import asyncio
     import io
     import torch
 
@@ -371,43 +374,19 @@ def _render_with_local_sd(prompt: str, width: int, height: int) -> bytes:
     seed = int(hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:8], 16)
     generator = torch.Generator(device="cuda").manual_seed(seed)
 
-    def _infer():
-        return pipe(
-            prompt=prompt,
-            num_inference_steps=20,
-            guidance_scale=7.5,
-            height=height,
-            width=width,
-            generator=generator,
-        )
-
-    # The endpoint is sync; the in-app endpoint is async. Run the
-    # blocking inference in a thread so we don't tie up the worker.
-    result = asyncio.run_coroutine_threadsafe(
-        asyncio.to_thread(_infer),
-        _get_or_make_loop(),
-    ).result(timeout=180)
+    result = pipe(
+        prompt=prompt,
+        num_inference_steps=20,
+        guidance_scale=7.5,
+        height=height,
+        width=width,
+        generator=generator,
+    )
 
     image = result.images[0]
     buf = io.BytesIO()
     image.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
-
-
-_SD_LOOP: Optional[asyncio.AbstractEventLoop] = None
-
-
-def _get_or_make_loop() -> asyncio.AbstractEventLoop:
-    """Return a long-lived event loop for SD inference offloads.
-
-    FastAPI dispatches sync endpoints on a worker thread that has no
-    event loop of its own. We cache one here so multiple requests can
-    reuse it.
-    """
-    global _SD_LOOP
-    if _SD_LOOP is None or _SD_LOOP.is_closed():
-        _SD_LOOP = asyncio.new_event_loop()
-    return _SD_LOOP
 
 
 def _placeholder_svg_b64() -> str:
