@@ -39,7 +39,34 @@ indefinitely.
 - The `novamind` machine name is set with `tailscale set --hostname=novamind`
 - Funnel is enabled on the tailnet (one-time, via the Tailscale admin
   console)
-- `tailscale funnel --bg 8000` is what exposes the backend
+
+### Routing architecture
+
+Tailscale Funnel supports mount-path routing, but its `--set-path` flag
+**strips the prefix** from the forwarded request. Mounting the backend
+at `/api/*` would change `/api/v1/auth/login` into `/v1/auth/login`
+for FastAPI — which doesn't match the `API_V1_STR = "/api/v1"` router
+prefix, so every API call would 404. Same story the other way: the
+frontend has no `/api` mount.
+
+The fix is a tiny reverse proxy (`scripts/reverse-proxy.py`) on port 7000:
+
+```
+  Internet
+     │
+     ▼
+https://novamind.taile50f6f.ts.net/   (Tailscale Funnel, single mount)
+     │
+     ▼
+127.0.0.1:7000 (reverse-proxy.py)
+     │
+     ├── /api/v1/*  →  http://127.0.0.1:8000/api/v1/*   (FastAPI, prefix preserved)
+     └── /*         →  http://127.0.0.1:3000/*          (Next.js)
+```
+
+The watchdog (`scripts\watch-tailscale-funnel.ps1`) supervises all
+four processes — backend, frontend, proxy, and Funnel — and recovers
+any single component that crashes within ~15s.
 
 ### Backups / alternatives
 
@@ -52,11 +79,24 @@ They work but suffer from URL rotation; not recommended for production use.
 
 `scripts\watch-tailscale-funnel.ps1` polls every 15 seconds and:
 
-1. Checks `http://127.0.0.1:8000/health` — if not 200, runs
-   `start-backend.ps1` to relaunch.
-2. Runs `tailscale funnel status` — if Funnel is off, runs
-   `tailscale funnel reset` then `tailscale funnel --bg 8000`.
-3. Logs every state change to `logs\watchdog.out.log` and `logs\watchdog.err.log`.
+1. Checks the FastAPI backend (`http://127.0.0.1:8000/health`) — if
+   not 200, runs `start-backend.ps1` to relaunch.
+2. Checks the Next.js frontend (`http://127.0.0.1:3000/login`,
+   HEAD) — if no response, runs `start-frontend.ps1`.
+3. Checks the reverse proxy (`http://127.0.0.1:7000/api/v1/auth/login`,
+   POST) — if no response, runs `start-reverse-proxy.ps1`.
+4. Checks `tailscale funnel status` — if Funnel is off, or if it's
+   pointing at the wrong port, runs `tailscale funnel reset` then
+   `tailscale funnel --bg http://127.0.0.1:7000` (Funnel must
+   point at the proxy, not directly at the backend).
+5. Logs every state change to `logs\watchdog.out.log` and
+   `logs\watchdog.err.log`.
+
+When everything's healthy it logs:
+
+```
+[YYYY-MM-DD HH:MM:SS] [OK] stack OK (backend+frontend+proxy+funnel)
+```
 
 ## Vercel env contract
 
