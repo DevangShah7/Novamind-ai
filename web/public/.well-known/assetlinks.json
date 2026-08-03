@@ -3,6 +3,9 @@
   "target": {
     "namespace": "android_app",
     "package_name": "ai.novamind.app",
-    "sha256_cert_fingerprints": ["98:F9:6C:0B:29:5C:7D:16:5C:7C:73:F7:A2:3B:02:2D:A2:5C:A5:C0:F2:6D:F0:1F:AF:FA:8C:72:DD:3D:FA:B2"]
+    "sha256_cert_fingerprints": [
+      "98:F9:6C:0B:29:5C:7D:16:5C:7C:73:F7:A2:3B:02:2D:A2:5C:A5:C0:F2:6D:F0:1F:AF:FA:8C:72:DD:3D:FA:B2",
+      "42:70:8B:9C:97:BA:BB:20:DE:E4:44:C7:F1:06:C3:DC:2A:2A:EE:FA:AF:7C:9B:A0:E3:52:30:1E:84:53:79:11"
+    ]
   }
 }]

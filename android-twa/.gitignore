@@ -12,3 +12,7 @@ browserhelper.aar
 
 # Generated keystore (commit only if intentional; this is for dev/sideload testing)
 debug.keystore
+
+# Release keystore — never commit. Losing this means the app cannot be updated.
+# Backup the .jks + password offline before first sideload.
+release.jks

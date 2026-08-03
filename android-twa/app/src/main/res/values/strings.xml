@@ -12,13 +12,7 @@
           \"relation\": [\"delegate_permission/common.handle_all_urls\"],
           \"target\": {
             \"namespace\": \"web\",
-            \"site\": \"https://novamind-ai-kappa.vercel.app\"
-          }
-        },{
-          \"relation\": [\"delegate_permission/common.handle_all_urls\"],
-          \"target\": {
-            \"namespace\": \"web\",
-            \"site\": \"https://novamind-o84uf14uu-devangshah7s-projects.vercel.app\"
+            \"site\": \"https://novamind.taile50f6f.ts.net\"
           }
         }]
     </string>

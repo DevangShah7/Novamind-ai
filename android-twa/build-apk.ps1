@@ -1,8 +1,16 @@
 # build-apk.ps1 - PowerShell wrapper that does what build-apk.bat was trying
 # to do, without cmd's $variable-mangling, ^-continuation, and errorlevel
-# bugs. Produces app\build\outputs\NovaMind-release.apk.
+# bugs. Produces app\build\outputs\$OutFileName (default: NovaMind-<alias>.apk).
+#
+# Parameterized on keystore so the same script can build both debug-signed
+# (sideload) and release-signed (distribution) APKs from one source tree.
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory)] [string]$KeystorePath,
+    [Parameter(Mandatory)] [string]$KeystorePass,
+    [Parameter(Mandatory)] [string]$KeyAlias,
+    [string]$OutFileName = "NovaMind-$KeyAlias.apk"
+)
 
 $ErrorActionPreference = 'Stop'
 $env:ANDROID_HOME = 'C:\Users\DEVANG\AppData\Local\Android\Sdk'
@@ -11,7 +19,9 @@ $env:PATH        = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\build-tools\35.0.0;$env
 
 $Root  = Split-Path -Parent $PSCommandPath
 $Build = Join-Path $Root 'app\build'
-$Out   = Join-Path $Build 'outputs\NovaMind-release.apk'
+$Out   = Join-Path $Build "outputs\$OutFileName"
+
+if (-not (Test-Path $KeystorePath)) { throw "Keystore not found: $KeystorePath" }
 
 # Step 1 -- aapt2 compile
 Write-Host '=== [1/7] Compile resources with aapt2 ==='
@@ -68,8 +78,12 @@ if (-not (Test-Path "$Build\dex\classes.dex")) { throw "d8 produced no classes.d
 
 # Step 5 -- inject classes.dex into the APK
 Write-Host '=== [5/7] Add classes.dex to APK ==='
-if (Test-Path "$Build\outputs") { Remove-Item "$Build\outputs" -Recurse -Force }
-New-Item -ItemType Directory -Force -Path "$Build\outputs" | Out-Null
+# Only remove the *current target* APK (not sibling APKs from a different
+# keystore flavor). Each build produces one APK; siblings stay.
+if (-not (Test-Path "$Build\outputs")) { New-Item -ItemType Directory -Force -Path "$Build\outputs" | Out-Null }
+if (Test-Path "$Build\outputs\$OutFileName") { Remove-Item "$Build\outputs\$OutFileName" -Force }
+$OutIdsig = "$Build\outputs\$OutFileName.idsig"
+if (Test-Path $OutIdsig) { Remove-Item $OutIdsig -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $z = [System.IO.Compression.ZipFile]::Open("$Build\linked-res.apk", 'Update')
 try {
@@ -90,18 +104,19 @@ if ($LASTEXITCODE -ne 0) { throw "zipalign failed" }
 Write-Host '=== [7/7] Sign with apksigner ==='
 if (Test-Path $Out) { Remove-Item $Out -Force }
 & apksigner sign `
-    --ks "$Root\debug.keystore" `
-    --ks-pass pass:android `
-    --key-pass pass:android `
-    --ks-key-alias androiddebugkey `
+    --ks "$KeystorePath" `
+    --ks-pass "pass:$KeystorePass" `
+    --key-pass "pass:$KeystorePass" `
+    --ks-key-alias "$KeyAlias" `
     --out $Out `
     "$Build\aligned.apk"
 if ($LASTEXITCODE -ne 0) { throw "apksigner failed" }
 
 Write-Host ''
 Write-Host '=== BUILD SUCCEEDED ===' -ForegroundColor Green
-Write-Host "APK: $Out"
+Write-Host "APK:    $Out"
+Write-Host "Signed: $KeystorePath (alias=$KeyAlias)" -ForegroundColor Cyan
 Write-Host ''
 Write-Host 'SHA-256 of signing cert (for assetlinks.json):' -ForegroundColor Cyan
-& keytool -list -v -keystore "$Root\debug.keystore" -storepass android 2>$null |
+& keytool -list -v -keystore "$KeystorePath" -storepass "$KeystorePass" 2>$null |
     Select-String -Pattern 'SHA256:' | ForEach-Object { $_.Line }
