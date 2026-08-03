@@ -1,9 +1,13 @@
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
 
 from app.core.config import settings
 
@@ -98,11 +102,53 @@ async def lifespan(_app: FastAPI):
         "NovaMind starting up (vercel=%s, migrations=%s, log_level=%s)",
         settings.VERCEL, settings.RUN_DB_MIGRATIONS, settings.LOG_LEVEL,
     )
+    # Ensure the local NovaMind foundation-model package is importable when
+    # the chat handlers run ``from novamind import …`` (they live in
+    # ``backend/app/services`` but the package itself is at the repo-root
+    # sibling ``novamind-llm/``). Prepending it to sys.path is a no-op when
+    # the package is already on PYTHONPATH (e.g. installed via pip).
+    _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    _novamind_llm = os.path.join(_repo_root, "novamind-llm")
+    if os.path.isdir(_novamind_llm) and _novamind_llm not in sys.path:
+        sys.path.insert(0, _novamind_llm)
+        logger.info("Added %s to sys.path for local-novamind imports", _novamind_llm)
+    # Propagate the local-novamind engine settings into ``os.environ`` so the
+    # chat handlers (which read these directly via ``os.environ.get``) agree
+    # with pydantic-settings. Without this, ``.env`` only feeds the Settings
+    # model and ``neural_reachable()``/``get_local_llm()`` see nothing.
+    for _key in (
+        "NOVA_LOCAL_ENABLED",
+        "NOVA_LOCAL_WEIGHTS",
+        "NOVA_LOCAL_TOKENIZER",
+        "NOVA_LOCAL_CONFIG",
+        "NOVA_LOCAL_MAX_TOKENS",
+        "NOVA_LOCAL_TEMPERATURE",
+    ):
+        _val = getattr(settings, _key, None)
+        if _val not in (None, "", False):
+            os.environ.setdefault(_key, str(_val))
+    if settings.NOVA_LOCAL_ENABLED:
+        logger.info(
+            "NovaMind-Neural enabled (weights=%s, config=%s)",
+            settings.NOVA_LOCAL_WEIGHTS, settings.NOVA_LOCAL_CONFIG,
+        )
     if settings.RUN_DB_MIGRATIONS:
         try:
             _bootstrap_database()
         except Exception as exc:  # pragma: no cover - keep app alive even if seed fails
             logger.error("DB bootstrap failed (continuing anyway): %s", exc)
+
+    # Warm the SDXL pipeline on a worker thread so the first image
+    # request doesn't pay the ~10s torch + diffusers import cost in
+    # the request path. Fire-and-forget — the app serves traffic
+    # immediately while the warmup runs in the background.
+    try:
+        import asyncio
+        from app.api.endpoints.documents_image import warm_sdxl_pipeline
+        asyncio.get_event_loop().run_in_executor(None, warm_sdxl_pipeline)
+        logger.info("sdxl warmup scheduled on background thread")
+    except Exception as exc:  # pragma: no cover - best-effort warmup
+        logger.warning("sdxl warmup scheduling failed: %s", exc)
 
     yield
 
@@ -133,6 +179,55 @@ _cors_kwargs = dict(
 if settings.ALLOW_VERCEL_PREVIEWS:
     _cors_kwargs["allow_origin_regex"] = r"https://.*\.vercel\.app"
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
+
+
+# Safe RequestValidationError handler.
+#
+# Default FastAPI handler calls ``jsonable_encoder`` on the parsed
+# request body to attach it to the 422 response. That encoder calls
+# ``bytes.decode('utf-8')`` on any bytes value, which crashes with
+# UnicodeDecodeError when the body is binary (e.g. a PNG uploaded to
+# an endpoint that expected JSON). The crash surfaces as a 500 with
+# the connection half-closed, which browsers report as ``ERR_FAILED``.
+#
+# This handler walks the validation errors and replaces any bytes
+# input with a short, safe marker before serializing, so the 422
+# goes out cleanly with a useful message. The end user still sees
+# the correct status code; we just don't include the unreadable
+# binary blob in the response payload.
+@app.exception_handler(RequestValidationError)
+async def _safe_validation_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    safe_errors = []
+    for err in exc.errors():
+        err_copy = dict(err)
+        # ``ctx`` may carry the offending value; sanitize it.
+        ctx = err_copy.get("ctx")
+        if isinstance(ctx, dict):
+            new_ctx = {}
+            for k, v in ctx.items():
+                if isinstance(v, (bytes, bytearray)):
+                    new_ctx[k] = (
+                        f"<{len(v)} bytes of binary data - "
+                        f"this endpoint expects {err_copy.get('loc', ['?'])[-1]} "
+                        f"as JSON, not a file upload>"
+                    )
+                else:
+                    new_ctx[k] = v
+            err_copy["ctx"] = new_ctx
+        # ``input`` may also carry the raw value. Replace bytes with
+        # a placeholder so JSON serialization never tries to decode.
+        if isinstance(err_copy.get("input"), (bytes, bytearray)):
+            err_copy["input"] = (
+                f"<{len(err_copy['input'])} bytes of binary data>"
+            )
+        safe_errors.append(err_copy)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": safe_errors},
+    )
+
 
 # Initialize audit logger — paths are platform-aware:
 #   /tmp/audit.log    on Vercel (only writable directory)
@@ -166,6 +261,51 @@ app.add_middleware(
 
 from app.api.v1 import api_router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+# NovaMind Apps — serve compiled app files straight off disk for the
+# preview iframe.  Mounted at ``/apps/preview/{app_id}/{rel:path}`` so it
+# sits OUTSIDE the JWT-protected ``/api/v1/*`` surface — the iframe
+# needs to load assets without an Authorization header.  ``storage.read_file``
+# already enforces path-traversal safety, so the route is a thin shell.
+from fastapi import HTTPException, Request
+from fastapi.responses import Response
+from app.services import apps as apps_svc
+from app.services.apps.storage import file_path as _app_file_path
+
+
+@app.get("/apps/preview/{app_id}/{rel:path}")
+def preview_app_file(app_id: str, rel: str):
+    """Serve a single compiled app file.  404s if the app is gone."""
+    if apps_svc.get_app(app_id) is None:
+        raise HTTPException(status_code=404, detail="App not found")
+    try:
+        body = apps_svc.read_file(app_id, rel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if body is None:
+        # Fall back to index.html so the iframe can survive deep links.
+        body = apps_svc.read_file(app_id, "index.html")
+        rel = "index.html"
+        if body is None:
+            raise HTTPException(status_code=404, detail="File not found")
+    # Map common extensions so the browser interprets them sensibly.
+    ext = rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+    media_type = {
+        "html": "text/html; charset=utf-8",
+        "css": "text/css; charset=utf-8",
+        "js": "application/javascript; charset=utf-8",
+        "json": "application/json; charset=utf-8",
+        "svg": "image/svg+xml",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "ico": "image/x-icon",
+        "txt": "text/plain; charset=utf-8",
+        "md": "text/markdown; charset=utf-8",
+    }.get(ext, "application/octet-stream")
+    return Response(content=body, media_type=media_type)
 
 # OpenAI-compatible surface — mounted at /v1/* (NOT /api/v1/v1/*) so SDKs
 # that target OpenAI's base URL can talk to NovaMind with just a base-URL swap.
