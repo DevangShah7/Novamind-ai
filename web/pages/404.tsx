@@ -41,14 +41,16 @@ export default function NotFound() {
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link href="/" className={buttonVariants()}>
-              <ArrowLeft className="h-4 w-4" />
-              Back to home
+              <span className="inline-flex items-center gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to home
+              </span>
             </Link>
             <Link href="/chat" className={buttonVariants({ variant: 'outline' })}>
-              Open chat
+              <span className="inline-flex items-center gap-2">Open chat</span>
             </Link>
             <Link href="/docs" className={buttonVariants({ variant: 'outline' })}>
-              Read the docs
+              <span className="inline-flex items-center gap-2">Read the docs</span>
             </Link>
           </div>
         </main>
