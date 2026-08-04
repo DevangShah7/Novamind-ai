@@ -6,6 +6,14 @@ import HowItWorks from '../components/marketing/HowItWorks';
 import CTA from '../components/marketing/CTA';
 import Footer from '../components/marketing/Footer';
 
+// Skip the static prerender pass — ``next build`` was choking during
+// static export with `React.Children.only expected to receive a
+// single React element child` inside a Radix/Next runtime path that's
+// only triggered by SSR. Rendering on demand keeps the page live and
+// avoids the prerender regression entirely. The trade-off is one
+// cheap render per cold request; the page is small.
+export const getServerSideProps = async () => ({ props: {} });
+
 /**
  * Public marketing landing page. Free users land here first;
  * authenticated users hitting "/" should still see the marketing

@@ -31,6 +31,9 @@ const API_BASE =
  *                    dialog saying "Stripe is not configured" (mock mode)
  *   - "contact"  → open a "Talk to us" dialog (Phase 10 will wire email)
  */
+// Skip static prerender — see comment in pages/index.tsx.
+export const getServerSideProps = async () => ({ props: {} });
+
 export default function Pricing() {
   const [busy, setBusy] = useState<Plan['slug'] | null>(null);
   const [dialog, setDialog] = useState<

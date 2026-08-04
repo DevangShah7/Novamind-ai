@@ -20,6 +20,10 @@ type Status = 'form' | 'submitting' | 'success' | 'error';
  * If the token is missing (user navigated here directly) or the link
  * has been used/expired, we land on a friendly recovery panel.
  */
+
+// Skip static prerender — see comment in pages/index.tsx.
+export const getServerSideProps = async () => ({ props: {} });
+
 export default function ResetPassword() {
   const router = useRouter();
   const [password, setPassword] = useState('');
