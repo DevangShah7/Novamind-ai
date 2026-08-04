@@ -92,6 +92,25 @@ export default function Login() {
             <span>{banner}</span>
           </div>
         )}
+        {/* Production demo helper — pinned so anyone landing on the page
+            can sign in without hunting for credentials. Hidden in real
+            local dev because mock mode already has its own helper. */}
+        <button
+          type="button"
+          onClick={() => { setEmail('demo@novamind.ai'); setPassword('demo123'); }}
+          className="flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
+        >
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Use demo credentials</p>
+            <p className="text-xs text-muted-foreground truncate">
+              demo@novamind.ai / demo123
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </button>
         <TextField
           id="email"
           label="Email"
