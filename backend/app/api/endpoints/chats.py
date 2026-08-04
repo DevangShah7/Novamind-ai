@@ -189,7 +189,7 @@ async def create_message_endpoint(
         is_ai=True,
         meta_data=ai_metadata
     )
-    ai_message_db = create_message(db=db, message=ai_message, chat_id=chat_id, user_id=0)  # 0 for AI user
+    ai_message_db = create_message(db=db, message=ai_message, chat_id=chat_id, user_id=None)  # NULL for AI-authored messages
 
     # Also store AI message in Redis
     ai_message_data = {
@@ -197,7 +197,7 @@ async def create_message_endpoint(
         "content": ai_message_content,
         "message_type": ai_message.message_type.value if hasattr(ai_message.message_type, 'value') else str(ai_message.message_type),
         "is_ai": True,
-        "user_id": 0,
+        "user_id": None,  # AI-authored; null instead of 0 to avoid a phantom user FK row
         "created_at": ai_message_db.created_at.isoformat() if hasattr(ai_message_db.created_at, 'isoformat') else str(ai_message_db.created_at)
     }
     redis_client.lpush(chat_key, json.dumps(ai_message_data))
