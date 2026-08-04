@@ -97,7 +97,7 @@ export default function Login() {
     const which = router.query.demo;
     if (which !== 'demo' && which !== 'devang') return;
     const creds = which === 'demo'
-      ? { email: 'demo@novamind.ai', password: 'demo123' }
+      ? { email: 'demo@novamind.ai', password: 'demo12345' }
       : { email: 'devang@novamind.ai', password: 'NovaMind2026!' };
     setEmail(creds.email);
     setPassword(creds.password);
@@ -136,7 +136,7 @@ export default function Login() {
           type="button"
           onClick={() => {
             setEmail('demo@novamind.ai');
-            setPassword('demo123');
+            setPassword('demo12345');
             // Submit on the next tick so React state has propagated.
             setTimeout(() => {
               try {
@@ -157,7 +157,7 @@ export default function Login() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">Use demo credentials</p>
             <p className="text-xs text-muted-foreground truncate">
-              demo@novamind.ai / demo123
+              demo@novamind.ai / demo12345
             </p>
           </div>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />

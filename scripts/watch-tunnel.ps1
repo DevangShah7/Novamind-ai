@@ -262,6 +262,14 @@ function Redeploy-Vercel {
         # would deadlock Vercel on long uploads.
         $psi.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
         $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        # CRITICAL: run vercel from web/, not the repo root. Without this,
+        # the watchdog (which is started from the repo root) would invoke
+        # vercel --prod with the *full repo* as the upload source, blowing
+        # past Vercel's 2 GiB upload cap because backend/.venv, logs/, etc.
+        # are still on disk and web/.vercelignore can't reach them. Setting
+        # WorkingDirectory explicitly means vercel reads web/.vercelignore
+        # AND only uploads web/'s working tree.
+        $psi.WorkingDirectory = $WebDir
         $p = [System.Diagnostics.Process]::Start($psi)
         $outLines = [System.Collections.ArrayList]::new()
         $errLines = [System.Collections.ArrayList]::new()

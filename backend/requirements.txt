@@ -15,6 +15,12 @@ PyJWT==2.8.0
 # pydantic[email] for EmailStr validators used in app/schemas/user.py.
 email-validator==2.1.1
 passlib[bcrypt]==1.7.4
+# Pin bcrypt to <4.0 — passlib 1.7.4 cannot introspect bcrypt >= 4 (the
+# `__about__.__version__` attribute was removed in bcrypt 4.1), and the
+# introspect failure surfaces as "password cannot be longer than 72 bytes"
+# during hash, which aborts the admin seed and any user signup that hits
+# get_password_hash. 3.x is the last line that still exposes the attribute.
+bcrypt<4.0
 python-multipart==0.0.5
 redis==4.2.0
 google-auth==2.23.0

@@ -70,7 +70,7 @@ def get_current_user(
         if email is None:
             raise credentials_exception
         token_data = TokenData(email=email)
-    except (jwt.JWTError, ValidationError):
+    except (jwt.PyJWTError, ValidationError):
         raise credentials_exception
     user = get_user_by_email(db, email=token_data.email)
     if user is None:
