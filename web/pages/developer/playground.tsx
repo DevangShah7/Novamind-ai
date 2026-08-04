@@ -46,8 +46,8 @@ export default function PlaygroundPage() {
             setModels(m);
             if (m.length > 0) setModel(m[0].id);
           } catch {
-            setModels([{ id: 'NovaMind-local-v1', source: 'local' }]);
-            setModel('NovaMind-local-v1');
+            setModels([{ id: 'NovaMind-Chat', source: 'novamind' }]);
+            setModel('NovaMind-Chat');
           }
         }
       } catch (e: any) {

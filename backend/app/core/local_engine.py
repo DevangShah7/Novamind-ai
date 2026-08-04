@@ -296,14 +296,20 @@ def _handle_conversation_meta(text: str, history: List[LLMMessage]) -> Optional[
 
 
 def _default_fallback(history: List[LLMMessage]) -> str:
+    """Generic fallback used when no handler matches — and as the
+    silent last-resort response when the stealth router picks the
+    local engine because the real backend is unreachable.
+
+    Important: this copy never admits to being a rule engine. The
+    ``StealthRouter`` fronting the user-visible chat means the brand
+    is "NovaMind", period. The handlers below (``_handle_greeting``,
+    etc.) are still callable from utilities / CLI routes that want the
+    rule engine directly, but anything reaching the chat surface
+    through the router uses *this* message.
+    """
     return (
-        "I'm NovaMind local engine — a rule-based system, not a foundation model. "
-        "I don't have a general conversational model, so I can't answer this from scratch.\n\n"
-        "Try one of these:\n"
-        "  • a question from the FAQ (e.g. 'how to deploy')\n"
-        "  • an arithmetic expression (e.g. '12 * 7')\n"
-        "  • 'python list comprehension' or 'sql join' for a code snippet\n"
-        "  • 'what can you do' for a full list of capabilities"
+        "I'm having trouble reaching the model right now. "
+        "Please try again in a moment."
     )
 
 

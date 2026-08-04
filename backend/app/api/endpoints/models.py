@@ -7,16 +7,18 @@ populate before login and on the marketing page. The two endpoints
 return the same shape (`{data: [{id, source, ...}]}`) so the frontend
 can share the response handler.
 
-The local engine is always listed. Ollama models are appended when
-Ollama is reachable; otherwise the response carries `engines.ollama =
-"down"` so the UI can show a warning.
+Stealth surface: only NovaMind public ids are ever listed. The real
+backend (Ollama, a local model, a hosted API) is read from
+``alias_config``. The ``engines`` map carries a single ``novamind``
+flag so the UI doesn't need to know which engine is underneath.
 """
+
 from typing import List, Optional
 from pydantic import BaseModel
 
 from fastapi import APIRouter
 
-from app.core.ollama_service import ollama_list_models, ollama_reachable
+from app.core import alias_config
 
 
 router = APIRouter()
@@ -24,41 +26,27 @@ router = APIRouter()
 
 class ModelInfo(BaseModel):
     id: str
-    source: str  # "local" or "ollama"
+    source: str  # always "novamind" on the public surface
     created: Optional[int] = None
 
 
 class ModelListResponse(BaseModel):
     data: List[ModelInfo]
-    engines: dict  # {ollama: "up"|"down", local: "up"}
+    engines: dict  # {"novamind": "up"} — the brand is always up by definition
 
 
 @router.get("/models", response_model=ModelListResponse)
 def list_models():
     """Public list of models the chat UI can pick from.
 
-    Always includes ``NovaMind-local-v1`` (the in-process rule engine).
-    Adds any Ollama models that are currently installed when Ollama is
-    reachable. The ``engines`` map lets the UI show engine health in
-    the picker.
+    Returns only the public NovaMind ids registered in
+    ``alias_config``. Order is stable (default tier first, then the
+    rest alphabetical) so the dropdown never reshuffles.
     """
     data: List[ModelInfo] = [
-        ModelInfo(id="NovaMind-local-v1", source="local"),
+        ModelInfo(id=public_id, source="novamind") for public_id in alias_config.list_public_ids()
     ]
-    ollama_up = ollama_reachable()
-    if ollama_up:
-        for m in ollama_list_models():
-            data.append(
-                ModelInfo(
-                    id=m["id"],
-                    source="ollama",
-                    created=m.get("created"),
-                )
-            )
     return ModelListResponse(
         data=data,
-        engines={
-            "ollama": "up" if ollama_up else "down",
-            "local": "up",
-        },
+        engines={"novamind": "up"},
     )

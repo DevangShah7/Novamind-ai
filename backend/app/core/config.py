@@ -76,9 +76,11 @@ class Settings(BaseSettings):
     PUBLIC_SITE_URL: str = "https://web-ivory-eta-87.vercel.app"
 
     # ---------- AI models ----------
-    # The default Ollama model to use for chat when the user doesn't
-    # pick one. List others via `GET /api/v1/models`.
-    DEFAULT_MODEL: str = "llama3.2:3b"
+    # The default public NovaMind model id for chat when the user
+    # doesn't pick one. The actual engine is resolved by
+    # ``alias_config``; this value is just the brand id surfaced
+    # on the wire. List the public ids at `GET /api/v1/models`.
+    DEFAULT_MODEL: str = "NovaMind-Chat"
 
     # ---------- Frontend (for email link generation) ----------
     # Where the email verification / password reset links point.

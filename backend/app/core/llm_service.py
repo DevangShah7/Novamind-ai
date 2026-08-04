@@ -684,67 +684,42 @@ To use your actual LLM model:
 def get_llm_service(model_variant: str = "local", model_name: Optional[str] = None) -> BaseLLMService:
     """
     Factory function to get the LLM service instance.
-    Users can specify which NeuraX variant to use, or provide their own implementation.
+
+    Always returns a ``StealthRouter`` for the chat path so the public
+    model id is what flows back to the wire. ``model_variant`` is
+    preserved for backward compatibility but ignored — every chat
+    surface now goes through the same stealth router.
 
     Args:
-        model_variant: Which variant to use. Default is ``"local"`` — the
-                       in-process rule engine, always available. If Ollama
-                       is running and ``OLLAMA_DEFAULT_MODEL`` is set (or
-                       ``"local"`` is passed and Ollama is reachable), we
-                       route through Ollama instead. Other supported values:
-                       "base", "code", "creative", "analysis" (legacy
-                       NeuraX template variants) and "custom" (placeholder
-                       for users to swap in a foundation-model backend).
-        model_name: Pin a specific Ollama model (e.g. ``"qwen2.5-coder:14b"``).
-                    When set, the factory returns an ``OllamaChatService`` with
-                    that exact model — but only if Ollama is reachable. If
-                    Ollama is down, the call still falls back to NovaMindLocal
-                    inside ``OllamaChatService.generate_response`` (with
-                    ``engine: "local_fallback"`` in the metadata). The
-                    legacy NeuraX variants ignore this argument.
+        model_variant: Legacy argument, ignored. Older callers passed
+            ``"novamind"`` / ``"neural"`` / ``"base"`` / ``"code"`` /
+            ``"creative"`` / ``"analysis"`` / ``"custom"`` here; the
+            new architecture picks a real backend from the public id,
+            so the variant no longer matters.
+        model_name: The public NovaMind model id the caller wants —
+            ``"NovaMind-Chat"``, ``"NovaMind-Pro"``, ``"NovaMind-Code"``,
+            or any id registered in ``alias_config``. When unset or
+            unknown, the factory returns the default public id.
 
     Returns:
-        BaseLLMService: An instance of the LLM service to use
+        BaseLLMService: A ``StealthRouter`` configured for the
+            requested public id. ``self.model_name`` is the *public*
+            id, so streaming SSE chunks and the OpenAI-compatible
+            response shape always speak the brand.
     """
-    # Imported here to avoid a circular import: local_engine / ollama_service
-    # both import from this module.
-    from .local_engine import NovaMindLocal
-    from .ollama_service import OllamaChatService, ollama_reachable, select_default_ollama_model
-    import os
+    # Imported here to avoid a circular import (stealth_router /
+    # alias_config import from this module's neighbours).
+    from .alias_config import backend_for, default_public_id
+    from .stealth_router import StealthRouter
 
-    # When the caller pins a specific Ollama model name, route through
-    # Ollama regardless of variant. The Ollama service itself does the
-    # unreachable-fallback to NovaMindLocal so the caller always gets a
-    # LLMResponse back (with engine="local_fallback" in metadata).
-    if model_name:
-        if ollama_reachable():
-            return OllamaChatService(model_name=model_name)
-        # Ollama down + caller wants a specific model: still try Ollama
-        # (the call will fall back internally). We don't pick a different
-        # model silently because the user asked for this one.
-        return OllamaChatService(model_name=model_name)
-
-    # When the caller doesn't pin a specific variant, prefer Ollama if it's
-    # reachable so the in-app chat ("AI working properly") actually uses a
-    # real model. Users on Ollama=off keep the rule engine.
-    if model_variant.lower() in ("local", "auto") and ollama_reachable():
-        default_model = os.environ.get("OLLAMA_DEFAULT_MODEL") or select_default_ollama_model()
-        return OllamaChatService(model_name=default_model)
-
-    variant_map = {
-        "local": NovaMindLocal,
-        "base": NeuraXBase,
-        "code": NeuraXCode,
-        "creative": NeuraXCreative,
-        "analysis": NeuraXAnalysis,
-        "custom": ExampleLLMService,
-    }
-
-    service_class = variant_map.get(model_variant.lower(), NovaMindLocal)
-
-    if model_variant.lower() == "custom":
-        return service_class(model_name="custom-llm")
-    elif model_variant.lower() == "local":
-        return service_class(model_name="NovaMind-local-v1")
+    # Resolve the requested public id. Unknown ids (legacy
+    # ``llama3.2:3b``, an OpenAI tag, an Ollama name a developer
+    # copy-pasted) collapse to the default public id so the wire
+    # never carries them.
+    requested = (model_name or "").strip()
+    if requested and backend_for(requested) is not None:
+        public_id = requested
     else:
-        return service_class()
+        public_id = default_public_id()
+
+    return StealthRouter(public_id=public_id)

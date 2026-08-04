@@ -3,9 +3,11 @@ OpenAI-compatible v1 surface — `/v1/models`, `/v1/chat/completions`,
 `/v1/embeddings`, `/v1/usage`, `/v1/billing`.
 
 Authenticated via ``Authorization: Bearer nm_...`` against the existing
-``api_keys`` table. Same engine (Ollama when reachable, NovaMindLocal
-otherwise) as the in-app chat, so the developer surface is not a parallel
-universe.
+``api_keys`` table. Same engine (the stealth router, which talks to
+Ollama when reachable and falls back to the local rule engine
+otherwise) as the in-app chat, so the developer surface is not a
+parallel universe. The router guarantees the real backend identity
+never leaks through the wire.
 """
 
 from __future__ import annotations
@@ -24,13 +26,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api import deps
-from app.core.llm_service import LLMMessage, LLMMessageType
-from app.core.ollama_service import (
-    OllamaChatService,
-    ollama_list_models,
-    ollama_reachable,
-    select_default_ollama_model,
-)
+from app.core import alias_config
+from app.core.llm_service import LLMMessage, LLMMessageType, get_llm_service
 from app.crud import api_key as api_key_crud
 from app.crud import api_usage as api_usage_crud
 from app.models import ApiKey, ApiUsage, User
@@ -98,22 +95,18 @@ def get_user_from_api_key(
 
 # ---------- /v1/models ----------
 
-_LOCAL_MODEL_IDS = ["NovaMind-local-v1"]
-
 
 @router.get("/models", response_model=ModelListResponse)
 def list_models(_: tuple = Depends(get_user_from_api_key)):
     """List models available to the caller.
 
-    Always includes ``NovaMind-local-v1`` (the in-process rule engine,
-    always available). Adds any Ollama models if Ollama is reachable.
+    Returns only the public NovaMind ids. The real backend (whatever
+    ``alias_config`` says) is never listed — the wire always speaks
+    the brand.
     """
     data: List[ModelInfo] = [
-        ModelInfo(id="NovaMind-local-v1", source="local"),
+        ModelInfo(id=public_id, source="novamind") for public_id in alias_config.list_public_ids()
     ]
-    if ollama_reachable():
-        for m in ollama_list_models():
-            data.append(ModelInfo(id=m["id"], source="ollama", created=m.get("created")))
     return ModelListResponse(data=data)
 
 
@@ -243,15 +236,15 @@ def _enforce_quota(db: Session, user: User, key: ApiKey) -> None:
 
 
 def _pick_service(model: Optional[str]):
-    """Pick the right engine for the requested model name."""
-    if not model or model == "NovaMind-local-v1":
-        from app.core.local_engine import NovaMindLocal
-        return NovaMindLocal()
-    # Anything else: route through Ollama if reachable, else local.
-    if ollama_reachable():
-        return OllamaChatService(model_name=model)
-    from app.core.local_engine import NovaMindLocal
-    return NovaMindLocal()
+    """Pick the service for the requested model name.
+
+    Goes through the stealth router so the returned service's
+    ``model_name`` is always a public NovaMind id — the SSE wrapper
+    relies on this to stamp the correct ``model:`` field on every
+    chunk. Unknown ids (legacy ``llama3.2:3b``, an OpenAI tag, an
+    Ollama name a developer paste-ed) collapse to the default tier.
+    """
+    return get_llm_service(model_name=model)
 
 
 @router.post("/chat/completions")
@@ -265,6 +258,11 @@ async def chat_completions(
 
     Supports both the standard (non-streaming) response and
     ``stream=true`` (SSE in the same ``data: [DONE]`` shape OpenAI uses).
+
+    The request's ``model`` field is treated as a public NovaMind id
+    (or, when unknown, collapsed to the default public id). The
+    response always speaks the public id — never the real backend
+    name.
     """
     user, key = auth
     _enforce_quota(db, user, key)
@@ -278,6 +276,9 @@ async def chat_completions(
 
     llm_messages = _to_llm_messages(messages)
     service = _pick_service(model)
+    # The public id is what flows back to the wire; the router has
+    # already stamped it onto ``service.model_name``.
+    public_model = getattr(service, "model_name", alias_config.default_public_id())
 
     t0 = time.time()
     if stream:
@@ -295,7 +296,7 @@ async def chat_completions(
                         "id": completion_id,
                         "object": "chat.completion.chunk",
                         "created": created,
-                        "model": getattr(service, "model_name", model or "unknown"),
+                        "model": public_model,
                         "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None}],
                     }
                     yield f"data: {json.dumps(delta)}\n\n".encode("utf-8")
@@ -303,7 +304,7 @@ async def chat_completions(
                     "id": completion_id,
                     "object": "chat.completion.chunk",
                     "created": created,
-                    "model": getattr(service, "model_name", model or "unknown"),
+                    "model": public_model,
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                 }
                 yield f"data: {json.dumps(tail)}\n\n".encode("utf-8")
@@ -326,7 +327,7 @@ async def chat_completions(
                     status_code=200,
                     elapsed_ms=int((time.time() - t0) * 1000),
                     tokens=None,
-                    model_used=getattr(service, "model_name", model or "unknown"),
+                    model_used=public_model,
                 )
 
         return StreamingResponse(event_source(), media_type="text/event-stream")
@@ -347,7 +348,7 @@ async def chat_completions(
             status_code=500,
             elapsed_ms=int((time.time() - t0) * 1000),
             tokens=None,
-            model_used=model or "unknown",
+            model_used=public_model,
         )
         raise HTTPException(status_code=500, detail=f"model call failed: {e}")
 
@@ -380,9 +381,12 @@ async def chat_completions(
             "completion_tokens": response.tokens_used,
             "total_tokens": response.tokens_used,
         },
+        # ``x_novamind`` exposes the brand surface, never the real engine
+        # identity. The router has already stripped leaky metadata keys
+        # (``engine``, ``handler``, ``fallback_reason`` …).
         "x_novamind": {
-            "engine": response.metadata.get("engine"),
-            "handler": response.metadata.get("handler"),
+            "surface": "novamind",
+            "model": response.model_name,
         },
     }
 
