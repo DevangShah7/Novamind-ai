@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Brain, Github } from 'lucide-react';
-import { Button } from '../ui/Button';
+import { buttonVariants } from '../ui/Button';
 import { cn } from '../../lib/cn';
 
 interface NavBarProps {
@@ -14,6 +14,13 @@ interface NavBarProps {
  * and pricing pages (links to docs, pricing, login/signup). The `app`
  * variant is for inside the product — but for now, both look the same
  * and the variant prop is reserved for future expansion.
+ *
+ * Note: the CTA links here intentionally don't use Radix's
+ * ``Button asChild`` pattern. ``<Slot>`` calls ``React.Children.only``,
+ * which the production-build prerender rejects when its single child
+ * is a Next.js ``<Link>`` (it produces multiple child elements
+ * internally). Rendering ``Link`` with ``buttonVariants`` directly
+ * gives the same look without the prerender regression.
  */
 export default function NavBar({ variant = 'marketing' }: NavBarProps) {
   const router = useRouter();
@@ -70,17 +77,29 @@ export default function NavBar({ variant = 'marketing' }: NavBarProps) {
             <Github className="h-4 w-4" />
           </a>
           {isAuthed ? (
-            <Button asChild size="sm">
-              <Link href="/chat">Open app</Link>
-            </Button>
+            <Link
+              href="/chat"
+              className={buttonVariants({ size: 'sm' })}
+            >
+              Open app
+            </Link>
           ) : (
             <>
-              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-                <Link href="/login">Sign in</Link>
-              </Button>
-              <Button asChild size="sm">
-                <Link href="/signup">Get started</Link>
-              </Button>
+              <Link
+                href="/login"
+                className={cn(
+                  buttonVariants({ variant: 'ghost', size: 'sm' }),
+                  'hidden sm:inline-flex'
+                )}
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/signup"
+                className={buttonVariants({ size: 'sm' })}
+              >
+                Get started
+              </Link>
             </>
           )}
         </div>

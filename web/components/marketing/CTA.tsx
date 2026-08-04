@@ -1,9 +1,16 @@
 import Link from 'next/link';
-import { Button } from '../ui/Button';
+import { buttonVariants } from '../ui/Button';
 
 /**
  * Closing CTA strip for the landing page. Pure marketing — pushes the
  * reader to /signup with a single button.
+ *
+ * Note: the CTA link here intentionally doesn't use Radix's
+ * ``Button asChild`` pattern. ``<Slot>`` calls ``React.Children.only``,
+ * which the production-build prerender rejects when its single child
+ * is a Next.js ``<Link>`` (it produces multiple child elements
+ * internally). Rendering ``Link`` with ``buttonVariants`` directly
+ * gives the same look without the prerender regression.
  */
 export default function CTA() {
   return (
@@ -23,13 +30,15 @@ export default function CTA() {
               more tokens, more keys, or more models.
             </p>
             <div className="mt-8">
-              <Button
-                asChild
-                size="lg"
-                className="bg-white text-primary hover:bg-white/95"
+              <Link
+                href="/signup"
+                className={buttonVariants({
+                  size: 'lg',
+                  className: 'bg-white text-primary hover:bg-white/95',
+                })}
               >
-                <Link href="/signup">Create your free account</Link>
-              </Button>
+                Create your free account
+              </Link>
             </div>
           </div>
         </div>

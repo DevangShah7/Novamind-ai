@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, Sparkles } from 'lucide-react';
-import { Button } from '../ui/Button';
+import { buttonVariants } from '../ui/Button';
 
 /**
  * Hero section for the marketing landing page.
@@ -11,6 +11,13 @@ import { Button } from '../ui/Button';
  *   3. Subhead (one-sentence value prop)
  *   4. CTA pair (Get started → /signup, View pricing → /pricing)
  *   5. Trust strip ("No credit card · Free tier · Cancel anytime")
+ *
+ * Note: the CTA links here intentionally don't use Radix's
+ * ``Button asChild`` pattern. ``<Slot>`` calls ``React.Children.only``,
+ * which the production-build prerender rejects when its single child
+ * is a Next.js ``<Link>`` (it produces multiple child elements
+ * internally). Rendering ``Link`` with ``buttonVariants`` directly
+ * gives the same look without the prerender regression.
  */
 export default function Hero() {
   return (
@@ -51,15 +58,13 @@ export default function Hero() {
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button asChild size="lg">
-              <Link href="/signup">
-                Get started free
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link href="/pricing">View pricing</Link>
-            </Button>
+            <Link href="/signup" className={buttonVariants({ size: 'lg' })}>
+              Get started free
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link href="/pricing" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
+              View pricing
+            </Link>
           </div>
 
           <p className="mt-6 text-xs text-muted-foreground">

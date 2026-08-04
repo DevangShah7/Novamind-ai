@@ -3,11 +3,18 @@ import Head from 'next/head';
 import { ArrowLeft, Search } from 'lucide-react';
 import NavBar from '../components/marketing/NavBar';
 import Footer from '../components/marketing/Footer';
-import { Button } from '../components/ui/Button';
+import { buttonVariants } from '../components/ui/Button';
 
 /**
  * Branded 404 page. Suggests a few likely destinations so the
  * visitor never feels lost.
+ *
+ * Note: the CTA links here intentionally don't use Radix's
+ * ``Button asChild`` pattern. ``<Slot>`` calls ``React.Children.only``,
+ * which the production-build prerender rejects when its single child
+ * is a Next.js ``<Link>`` (it produces multiple child elements
+ * internally). Rendering ``Link`` with ``buttonVariants`` directly
+ * gives the same look without the prerender regression.
  */
 export default function NotFound() {
   return (
@@ -31,18 +38,16 @@ export default function NotFound() {
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button asChild>
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                Back to home
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/chat">Open chat</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/docs">Read the docs</Link>
-            </Button>
+            <Link href="/" className={buttonVariants()}>
+              <ArrowLeft className="h-4 w-4" />
+              Back to home
+            </Link>
+            <Link href="/chat" className={buttonVariants({ variant: 'outline' })}>
+              Open chat
+            </Link>
+            <Link href="/docs" className={buttonVariants({ variant: 'outline' })}>
+              Read the docs
+            </Link>
           </div>
         </main>
         <Footer />
