@@ -80,6 +80,33 @@ export default function Login() {
     setPassword('admin123');
   };
 
+  // Auto-fill (and submit, if ?go=1 is set) on ?demo=demo creds so a
+  // shared link `https://...vercel.app/login?demo=demo` Just Works.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const which = router.query.demo;
+    if (which === 'demo') {
+      setEmail('demo@novamind.ai');
+      setPassword('demo123');
+      if (router.query.go === '1') {
+        // small delay so state propagates
+        setTimeout(() => {
+          const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
+          f?.click();
+        }, 100);
+      }
+    } else if (which === 'devang') {
+      setEmail('devang@novamind.ai');
+      setPassword('NovaMind2026!');
+      if (router.query.go === '1') {
+        setTimeout(() => {
+          const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
+          f?.click();
+        }, 100);
+      }
+    }
+  }, [router.isReady, router.query.demo, router.query.go]);
+
   return (
     <AuthLayout
       title="Welcome back"
@@ -97,7 +124,15 @@ export default function Login() {
             local dev because mock mode already has its own helper. */}
         <button
           type="button"
-          onClick={() => { setEmail('demo@novamind.ai'); setPassword('demo123'); }}
+          onClick={() => {
+            setEmail('demo@novamind.ai');
+            setPassword('demo123');
+            // Submit on the next tick so React state has propagated.
+            setTimeout(() => {
+              const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
+              f?.click();
+            }, 50);
+          }}
           className="flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
         >
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -149,6 +184,7 @@ export default function Login() {
         )}
 
         <button
+          id="login-submit-btn"
           type="submit"
           disabled={!canSubmit}
           className="group flex w-full items-center justify-center gap-2 rounded-lg gradient-bg px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
