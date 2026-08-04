@@ -121,12 +121,12 @@ async def create_message_endpoint(
 
     # Generate AI response using the LLM service. We honor the
     # `message_in.model` field (set by the UI's model picker) and fall
-    # back to the configured `DEFAULT_MODEL` if unset. The factory
-    # always returns a service; the Ollama variant itself falls back
-    # to NovaMindLocal when Ollama is down, and stamps
-    # `engine="local_fallback"` into the response metadata.
-    from app.core.config import settings
-    chosen_model = message_in.model or settings.DEFAULT_MODEL
+    # back to the public default id from ``alias_config`` if unset.
+    # The factory always returns a StealthRouter; it routes to Ollama
+    # when reachable and stamps the public id onto the response so
+    # the chat_messages row never carries a real model name.
+    from app.core import alias_config
+    chosen_model = message_in.model or alias_config.default_public_id()
     llm_service = get_llm_service(model_name=chosen_model)
 
     # Convert chat messages to LLM service format

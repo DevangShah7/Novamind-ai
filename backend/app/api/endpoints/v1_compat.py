@@ -25,12 +25,6 @@ from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.core.llm_service import LLMMessage, LLMMessageType
-from app.core.ollama_service import (
-    OllamaChatService,
-    ollama_list_models,
-    ollama_reachable,
-    select_default_ollama_model,
-)
 from app.crud import api_key as api_key_crud
 from app.crud import api_usage as api_usage_crud
 from app.models import ApiKey, ApiUsage, User
@@ -98,26 +92,36 @@ def get_user_from_api_key(
 
 # ---------- /v1/models ----------
 
-_LOCAL_MODEL_IDS = ["NovaMind-local-v1"]
-
-
 @router.get("/models", response_model=ModelListResponse)
 def list_models(_: tuple = Depends(get_user_from_api_key)):
     """List models available to the caller.
 
-    Always includes ``NovaMind-local-v1`` (the in-process rule engine,
-    always available). Adds any Ollama models if Ollama is reachable.
+    Returns only the public NovaMind ids registered in
+    ``alias_config``. The ``source`` field is always ``"novamind"``
+    so the wire never carries a hint of the underlying engine.
     """
+    from app.core import alias_config
+
     data: List[ModelInfo] = [
-        ModelInfo(id="NovaMind-local-v1", source="local"),
+        ModelInfo(id=public_id, source="novamind", owned_by="novamind")
+        for public_id in alias_config.list_public_ids()
     ]
-    if ollama_reachable():
-        for m in ollama_list_models():
-            data.append(ModelInfo(id=m["id"], source="ollama", created=m.get("created")))
     return ModelListResponse(data=data)
 
 
 # ---------- /v1/chat/completions ----------
+
+def _pick_service(model: Optional[str]):
+    """Pick the right engine for the requested model name.
+
+    Kept as a thin alias over ``get_llm_service`` so the
+    ``/v1/chat/completions`` endpoint doesn't have to know about
+    the stealth layer. The factory now resolves every model name
+    to a ``StealthRouter`` and stamps the public id onto the
+    response — no further routing is needed here.
+    """
+    from app.core.llm_service import get_llm_service
+    return get_llm_service(model_name=model)
 
 def _to_llm_messages(messages: List[Dict[str, Any]]) -> List[LLMMessage]:
     out: List[LLMMessage] = []
@@ -242,16 +246,11 @@ def _enforce_quota(db: Session, user: User, key: ApiKey) -> None:
         )
 
 
-def _pick_service(model: Optional[str]):
-    """Pick the right engine for the requested model name."""
-    if not model or model == "NovaMind-local-v1":
-        from app.core.local_engine import NovaMindLocal
-        return NovaMindLocal()
-    # Anything else: route through Ollama if reachable, else local.
-    if ollama_reachable():
-        return OllamaChatService(model_name=model)
-    from app.core.local_engine import NovaMindLocal
-    return NovaMindLocal()
+# The legacy _pick_service() helper has been replaced by
+# get_llm_service() in app.core.llm_service — see the alias near
+# the top of /v1/chat/completions. All chat traffic now flows
+# through the stealth router, which stamps the public id onto
+# the response.
 
 
 @router.post("/chat/completions")
@@ -381,8 +380,10 @@ async def chat_completions(
             "total_tokens": response.tokens_used,
         },
         "x_novamind": {
-            "engine": response.metadata.get("engine"),
-            "handler": response.metadata.get("handler"),
+            # Surface marker only — engine/handler were stripped by
+            # the stealth router before reaching this point, so the
+            # wire no longer leaks which real model answered.
+            "surface": "novamind",
         },
     }
 

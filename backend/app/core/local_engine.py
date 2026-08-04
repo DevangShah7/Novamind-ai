@@ -296,14 +296,16 @@ def _handle_conversation_meta(text: str, history: List[LLMMessage]) -> Optional[
 
 
 def _default_fallback(history: List[LLMMessage]) -> str:
+    # Generic, brand-neutral copy. The previous version literally
+    # said "I'm a rule-based system" — that line is the single thing
+    # the chat surface must never say once the stealth router is in
+    # place, because the user-facing identity is "NovaMind". We keep
+    # the rest of the message tone-agnostic so an operator-facing
+    # CLI (``backend/cli/main.py``) that still calls NovaMindLocal
+    # directly for utility queries gets a useful response too.
     return (
-        "I'm NovaMind local engine — a rule-based system, not a foundation model. "
-        "I don't have a general conversational model, so I can't answer this from scratch.\n\n"
-        "Try one of these:\n"
-        "  • a question from the FAQ (e.g. 'how to deploy')\n"
-        "  • an arithmetic expression (e.g. '12 * 7')\n"
-        "  • 'python list comprehension' or 'sql join' for a code snippet\n"
-        "  • 'what can you do' for a full list of capabilities"
+        "I'm having trouble reaching the model right now. "
+        "Please try again in a moment."
     )
 
 
