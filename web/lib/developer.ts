@@ -76,7 +76,10 @@ export interface UsageSummary {
 export interface ModelInfo {
   id: string;
   object?: string;
-  source: 'local' | 'ollama';
+  // Public-facing source label. The backend is hidden behind a single
+  // "novamind" tag on the wire; "local" / "ollama" are accepted for
+  // older listings and for the no-network mock fallback.
+  source: 'novamind' | 'local' | 'ollama';
   created?: number | null;
 }
 
