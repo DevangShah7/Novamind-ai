@@ -1,175 +1,126 @@
-# Deploy the FastAPI backend to Fly.io (free, permanent)
+# Deploy the FastAPI backend to Vercel (free, permanent)
 
 The frontend on Vercel currently can't reach the FastAPI service because
 the old Cloudflare Quick Tunnel URL died and Vercel has no env vars set.
-This guide deploys the backend to Fly.io's free tier, gives it a stable
-public URL, and wires the Vercel frontend to it.
+This guide deploys the backend to Vercel's free tier as a **second
+project** alongside the frontend, gives it a stable URL, and wires the
+frontend to it.
 
-Fly.io's free tier gives you 3 shared VMs that can run 24/7 for $0
-(plus 3 GB of persistent volume storage if you need it). The URL
-(`https://<app-name>.fly.dev`) is permanent as long as the account
-stays in good standing — no 30-day trial, no surprise charges.
+Why Vercel for the backend:
 
-The repo is already deployment-ready:
+- You already have the Vercel CLI authenticated and the deploy flow
+  working — no new platform to learn.
+- The repo is already wired: `backend/vercel.json` builds the
+  `api/index.py` Mangum entrypoint, `backend/api/index.py` re-exports
+  `handler` from `app.main`, and `mangum` is in `requirements.txt`.
+- The same `BACKEND_CORS_ORIGINS` allowlist + `ALLOW_VERCEL_PREVIEWS=1`
+  already in the code works for both projects.
+- Free tier covers a small FastAPI service. The 10s function timeout on
+  the free plan is fine for login / chat because the stealth router falls
+  back to the in-process rule engine when Ollama is unreachable.
 
-- `backend/Dockerfile` — Python 3.11-slim, non-root user, healthcheck on `/health`
-- `backend/fly.toml` — app name, region, [build] block, [services] listener on port 8000, http_check on `/health`
-- `backend/.dockerignore` — keeps the build context clean
+The repo is already deployment-ready for Vercel:
 
-The backend uses `Base.metadata.create_all()` on startup when
-`RUN_DB_MIGRATIONS=1`, so a fresh Postgres database needs no Alembic
-migrations before the first deploy.
+- `backend/vercel.json` — `@vercel/python` builder for `api/index.py`
+- `backend/api/index.py` — re-exports `handler` from `app.main`
+- `backend/app/main.py` — wraps the ASGI app in `Mangum(app, lifespan="off")`
+- `backend/requirements.txt` — `mangum==0.17.0` already pinned
 
 ---
 
-## 1. Install the Fly CLI and sign in
+## 1. Create a free Postgres database
 
-```bash
-# macOS / Linux
-curl -L https://fly.io/install.sh | sh
+The default `sqlite:///./novamind.db` doesn't work on Vercel — the
+filesystem is read-only except for `/tmp`, so any data you write there is
+lost between cold starts. Use a managed Postgres.
 
-# Windows (PowerShell)
-iwr https://fly.io/install.ps1 -useb | iex
+The repo is already set up to work with one:
+`backend/app/core/database.py:18-23` uses `pool_pre_ping=True` and
+`pool_recycle=280` to survive Neon's 5-minute idle disconnect.
 
-fly auth login
-```
-
-## 2. Create a free Postgres database
-
-Fly's own Postgres is paid. The free path is a managed Postgres from
-[Neon](https://neon.tech) (recommended — 0.5 GB free, never sleeps,
-great SQLAlchemy 1.4 compat) or [Supabase](https://supabase.com) (500 MB
-free, sleep after 1 week of inactivity).
+Recommended: **Neon** (https://neon.tech) — 0.5 GB free, never sleeps,
+great SQLAlchemy 1.4 compat. Or Supabase if you want a UI on top.
 
 For Neon:
 1. Sign in with GitHub.
-2. **New Project** → region nearest you (Mumbai `ap-south-1` is fine) → Postgres 16.
-3. Copy the **connection string** from the dashboard. It looks like:
-   `postgresql://user:pass@ep-xxx-xxx.ap-south-1.aws.neon.tech/neondb?sslmode=require`
-4. **Important**: turn off "Auto-suspend" if you want the connection
-   pool to stay warm. Free tier still has it disabled by default;
-   leaving it on costs nothing extra but the first request after a
-   quiet period will be slow.
+2. **New Project** → region nearest you → Postgres 16.
+3. Copy the **connection string** from the dashboard:
+   `postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require`
+4. Keep that URL handy — you'll paste it as a Vercel env var in step 3.
 
-Keep that URL handy — you'll paste it as a Fly secret in step 4.
+## 2. Create a second Vercel project for the backend
 
-## 3. Create the Fly app
+Open the Vercel dashboard at https://vercel.com/dashboard and:
 
-From the repo root:
+1. Click **+ Add New** → **Project**.
+2. Import the same `novamind-ai` GitHub repo.
+3. On the configure screen:
+   - **Project Name**: `novamind-api` (or anything unique).
+   - **Root Directory**: click **Edit** and set it to `backend`. This is
+     critical — Vercel needs to build from `backend/` so it sees
+     `vercel.json` and `api/index.py` at the root of the build context.
+   - **Framework Preset**: leave as **Other** (Vercel will read
+     `backend/vercel.json` and pick `@vercel/python`).
+4. Don't deploy yet. Click **Environment Variables** (still on the
+   configure screen) and add each of the vars from step 3.
+5. Click **Deploy**.
 
-```bash
-cd backend
-fly launch --no-deploy --copy-config
-```
+If Vercel says "No framework detected", it's because Root Directory
+isn't set to `backend` — go back and fix that.
 
-`--copy-config` makes Fly use the existing `fly.toml` instead of
-generating a fresh one. When prompted:
-- **App name**: `novamind-api` (or anything unique; if the name is taken
-  Fly will tell you, then edit `app = "..."` at the top of `fly.toml`).
-- **Region**: `bom` (Mumbai) or whatever is closest to your users.
-- **Postgres**: say **No** — we use Neon.
-- **Redis**: say **No** — not needed.
+## 3. Set the environment variables
 
-This creates the app on Fly without deploying yet. It also provisions
-a `.fly/` directory and may add a `fly.toml` section for the deploy
-secrets; review the diff with `git diff backend/fly.toml` and commit
-anything sensible.
+In the backend project's **Settings** → **Environment Variables** page,
+add each of these (one per row, with values matching the desired
+environment — Production, Preview, Development):
 
-## 4. Set the secrets
+| Key | Value | Why |
+|---|---|---|
+| `SECRET_KEY` | A fresh random string | Generate with `python -c "import secrets;print(secrets.token_urlsafe(48))"`. The startup guard in `backend/app/core/config.py:179-198` refuses to boot with the default placeholder. |
+| `DATABASE_URL` | The Neon connection string from step 1 | The backend uses SQLAlchemy; the `postgresql://…?sslmode=require` URL works out of the box. |
+| `BACKEND_CORS_ORIGINS` | `https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app,http://localhost:3000` | Comma-separated. The vercel.app regex is enabled via the next row, so preview URLs work without redeploying. |
+| `ALLOW_VERCEL_PREVIEWS` | `1` | So future preview URLs (`*.vercel.app`) work without redeploying the backend. |
+| `FRONTEND_BASE_URL` | `https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app` | Used in email verification / password reset links. |
+| `PUBLIC_SITE_URL` | `https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app` | Used in Stripe redirects (set even if Stripe is in mock mode). |
+| `RUN_DB_MIGRATIONS` | `1` (first deploy only) | Tells the app to run `Base.metadata.create_all()` on boot. Flip to `0` after a successful first deploy. |
+| `OLLAMA_BASE_URL` | *(leave empty)* | The stealth router falls back to the rule engine when Ollama is unreachable. Set this only if you have a hosted Ollama. |
+| `GOOGLE_CLIENT_ID` | *(leave empty)* | Google sign-in stays disabled but the page still works. |
+| `GOOGLE_CLIENT_SECRET` | *(leave empty)* | Same. |
+| `SMTP_HOST` / `SMTP_USERNAME` / `SMTP_PASSWORD` | *(leave empty)* | Mail falls back to logging in `logs/dev-mail.log` (transient on Vercel, fine for dev). Real SMTP setup is out of scope for this fix. |
 
-Fly secrets are environment variables that aren't visible in the public
-app config. Set them all in one command:
+**After the first deploy succeeds**, edit `RUN_DB_MIGRATIONS` to `0` and
+redeploy — keeps cold starts fast.
 
-```bash
-fly secrets set \
-  SECRET_KEY="$(python -c 'import secrets;print(secrets.token_urlsafe(48))')" \
-  DATABASE_URL="postgresql://user:pass@ep-xxx.ap-south-1.aws.neon.tech/neondb?sslmode=require" \
-  BACKEND_CORS_ORIGINS="https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app,http://localhost:3000" \
-  ALLOW_VERCEL_PREVIEWS="1" \
-  FRONTEND_BASE_URL="https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app" \
-  PUBLIC_SITE_URL="https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app"
-```
+## 4. Smoke-test the backend
 
-Notes:
-- `SECRET_KEY` is mandatory. The startup guard in
-  `backend/app/core/config.py` refuses to boot with the default
-  placeholder key.
-- `DATABASE_URL` is the Neon connection string from step 2.
-- `BACKEND_CORS_ORIGINS` is a comma-separated allowlist. The vercel.app
-  regex is enabled via `ALLOW_VERCEL_PREVIEWS=1`, so you don't need to
-  list every preview URL.
-- `OLLAMA_BASE_URL` is intentionally **not** set. The stealth router
-  falls back to the rule engine when Ollama is unreachable, so chat
-  works; only LLM-powered responses degrade.
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are intentionally **not**
-  set. The frontend already renders a disabled "Google sign-in (not
-  configured)" placeholder when the client ID is empty.
-- `SMTP_*` are intentionally **not** set. The mailer falls back to
-  writing verification emails to `logs/dev-mail.log`. That file is
-  ephemeral on Fly (the VM's disk resets on every deploy), so for
-  real verification emails you'd add a managed SMTP later.
+Once the deploy finishes, Vercel gives the backend a URL like
+`https://novamind-api.vercel.app`. From your local PowerShell:
 
-## 5. Deploy
-
-```bash
-fly deploy
-```
-
-Watch the logs:
-
-```bash
-fly logs
-```
-
-Look for:
-- `Application startup complete.`
-- `Uvicorn running on http://0.0.0.0:8000`
-- `Running Base.metadata.create_all()` (first deploy only)
-- `Created initial admin user admin@novamind.ai` (first deploy only)
-
-If the boot fails with `Refusing to start: SECRET_KEY is a placeholder`,
-you forgot the `SECRET_KEY` secret. If you see Postgres connection
-errors, double-check the `DATABASE_URL` — Neon requires `?sslmode=require`.
-
-## 6. Flip `RUN_DB_MIGRATIONS` to 0
-
-After the first successful boot, the `users` table exists. Stop
-re-running `create_all()` on every deploy:
-
-```bash
-fly secrets unset RUN_DB_MIGRATIONS
-# (the env block in fly.toml already has RUN_DB_MIGRATIONS = "1";
-# change it to "0" and re-deploy)
-```
-
-Or simpler: just edit `backend/fly.toml` to flip `RUN_DB_MIGRATIONS = "0"`
-and re-run `fly deploy`. Subsequent deploys skip the create_all
-round-trip and boot faster.
-
-## 7. Smoke-test the backend
-
-From your local machine:
-
-```bash
+```powershell
 # Root returns 200 (FastAPI's default / handler)
-curl -i https://novamind-api.fly.dev/
+curl -i https://novamind-api.vercel.app/
 
-# CORS preflight echoes the Vercel origin
-curl -i -X OPTIONS \
-  -H "Origin: https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app" \
-  -H "Access-Control-Request-Method: POST" \
-  https://novamind-api.fly.dev/api/v1/auth/login
+# CORS preflight echoes the Vercel frontend origin
+curl -i -X OPTIONS `
+  -H "Origin: https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app" `
+  -H "Access-Control-Request-Method: POST" `
+  https://novamind-api.vercel.app/api/v1/auth/login
 ```
 
 The second command should return
 `Access-Control-Allow-Origin: https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app`.
 
-## 8. Wire the Vercel frontend to the new backend
+If you get a 404 on the first call, check the **Root Directory** setting
+in the Vercel project — it must be `backend`, not the repo root.
 
-```bash
-cd web
+## 5. Wire the Vercel frontend to the new backend
+
+In the **frontend** Vercel project (`novamind-ai`):
+
+```powershell
+cd E:\novamind-ai\web
 vercel env add NEXT_PUBLIC_API_URL production
-# paste: https://novamind-api.fly.dev/api/v1
+# paste: https://novamind-api.vercel.app/api/v1
 vercel env add NEXT_PUBLIC_USE_MOCK false production
 vercel --prod
 ```
@@ -179,24 +130,27 @@ After the redeploy, the production login page should:
 - Stop throwing React #418/#423
 - Successfully POST to `/api/v1/auth/login` and route to `/chat` on success
 
-## 9. Update local development
+## 6. Update local development
 
 In `web/.env.local` and `backend/.env`, replace the dead Cloudflare
-tunnel URL with the new Fly URL so local dev talks to the same
+tunnel URL with the new Vercel URL so local dev talks to the same
 backend as production.
 
 `web/.env.local`:
 ```
-NEXT_PUBLIC_API_URL=https://novamind-api.fly.dev/api/v1
+NEXT_PUBLIC_API_URL=https://novamind-api.vercel.app/api/v1
 NEXT_PUBLIC_USE_MOCK=false
 ```
 
 `backend/.env`:
 ```
+DATABASE_URL=postgresql://neondb_owner:<password>@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
 FRONTEND_BASE_URL=https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app
 PUBLIC_SITE_URL=https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app
 BACKEND_CORS_ORIGINS=https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app,https://*.vercel.app,http://localhost:3000,http://127.0.0.1:3000
 ALLOW_VERCEL_PREVIEWS=1
+ALLOW_DEV_SECRET_KEY=1
+SECRET_KEY=any-local-dev-string
 ```
 
 ## What this fixes and what it doesn't
@@ -205,16 +159,22 @@ ALLOW_VERCEL_PREVIEWS=1
 - The login form on `https://novamind-4zx31p7gb-devangshah7s-projects.vercel.app/login` reaches a real backend.
 - React #418/#423 hydration errors stop firing (the `?demo=demo&go=1` auto-click path is wrapped in try/catch).
 - The `favicon.ico` 404 is gone.
-- The backend URL is permanent as long as your Fly account is active.
+- The backend URL is permanent as long as your Vercel account is active.
 
 **Not in scope (deferred):**
-- Real SMTP so verification emails actually deliver instead of being written to ephemeral logs.
-- `GOOGLE_CLIENT_ID` for the deployed frontend (the disabled placeholder still works).
-- Custom domains on Vercel or Fly.
+- Real SMTP so verification emails actually deliver.
+- `GOOGLE_CLIENT_ID` for the deployed frontend.
+- Custom domains.
 - LLM-powered chat responses. The stealth router falls back to the rule engine when `OLLAMA_BASE_URL` is unset, so the chat surface stays usable, but you won't get real model output until you point it at a hosted Ollama.
+- Vercel free tier has a 10-second function timeout. The rule engine is fast, so login / chat / list-chats are all under that. Anything that proxies to Ollama would need Vercel Pro (60s).
+
+## Alternative platforms (if you change your mind later)
+
+`backend/fly.toml` and `backend/.dockerignore` are also in the repo if
+you want to deploy to Fly.io instead. To use them, follow the Fly.io
+deployment steps in the commit history of `DEPLOY_BACKEND_FREE.md`.
 
 ## Rolling back
 
-If a deploy breaks something:
-- `fly releases` lists prior releases; `fly releases rollback <id>` reverts to a known-good one.
-- For the frontend, `vercel rollback` from inside `web/` reverts to the prior Vercel deployment.
+- Frontend: `vercel rollback` from inside `web/` reverts to the prior Vercel deployment.
+- Backend: Vercel dashboard → Deployments tab → click the prior deployment → **Promote to Production**.
