@@ -1,20 +1,23 @@
 import Link from 'next/link';
 import Head from 'next/head';
-import { ArrowLeft, Search } from 'lucide-react';
-import NavBar from '../components/marketing/NavBar';
-import Footer from '../components/marketing/Footer';
+import { ArrowLeft } from 'lucide-react';
 import { buttonVariants } from '../components/ui/Button';
 
 /**
- * Branded 404 page. Suggests a few likely destinations so the
- * visitor never feels lost.
+ * Branded 404 page.
  *
- * Note: the CTA links here intentionally don't use Radix's
- * ``Button asChild`` pattern. ``<Slot>`` calls ``React.Children.only``,
- * which the production-build prerender rejects when its single child
- * is a Next.js ``<Link>`` (it produces multiple child elements
- * internally). Rendering ``Link`` with ``buttonVariants`` directly
- * gives the same look without the prerender regression.
+ * This page is statically prerendered during ``next build``. Earlier
+ * versions mounted ``<NavBar />`` and ``<Footer />`` here, but those
+ * components pull in Radix/Next primitives that call
+ * ``React.Children.only`` on their children — the production-build
+ * prerender rejects that with "expected to receive a single React
+ * element child". To keep the page statically buildable on Vercel,
+ * we render a minimal layout here (no NavBar / Footer) — visitors
+ * hitting a bad URL still get a useful recovery surface, just
+ * without the full marketing chrome.
+ *
+ * The marketing pages (which can use getServerSideProps to opt out
+ * of prerender) keep their NavBar/Footer intact.
  */
 export default function NotFound() {
   return (
@@ -22,11 +25,10 @@ export default function NotFound() {
       <Head>
         <title>Page not found · NovaMind AI</title>
       </Head>
-      <div className="min-h-screen bg-background text-foreground">
-        <NavBar />
-        <main className="mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-24 text-center sm:px-6">
+      <div className="flex min-h-screen flex-col bg-background text-foreground">
+        <main className="mx-auto flex max-w-2xl flex-1 flex-col items-center justify-center px-4 py-24 text-center sm:px-6">
           <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl gradient-bg text-white shadow-lg">
-            <Search className="h-10 w-10" />
+            <span className="text-3xl font-bold">?</span>
           </div>
 
           <h1 className="mt-8 text-5xl font-bold tracking-tight sm:text-6xl">
@@ -50,7 +52,9 @@ export default function NotFound() {
             </Link>
           </div>
         </main>
-        <Footer />
+        <footer className="py-4 text-center text-sm text-muted-foreground">
+          Developed By Devang Shah
+        </footer>
       </div>
     </>
   );
