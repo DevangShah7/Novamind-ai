@@ -11,10 +11,12 @@ export default function Footer() {
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white">
-                <Brain className="h-5 w-5" />
-              </div>
-              <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+              <span className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white">
+                  <Brain className="h-5 w-5" />
+                </div>
+                <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+              </span>
             </Link>
             <p className="mt-3 text-sm text-muted-foreground">
               Your AI operating system. Chat, build, ship.

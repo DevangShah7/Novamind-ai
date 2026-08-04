@@ -185,7 +185,11 @@
       "Bash(echo \"=== POST user message ===\")",
       "Bash(node_modules/.bin/next.cmd dev *)",
       "Bash(rm -f \"0\\)\" \"None\" \"today\" \"backend/4\" \"backend/None\" \"backend/dict\" \"backend/novamind.db\" \"backend/_diag_tunnel.ps1\" \"backend/tunnel-watchdog-instance.log.err\" \"web/198.41.200.13\" \"web/exception\" \"web/next\" \"web/tsconfig.tsbuildinfo\")",
-      "Bash(rm -rf logo/)"
+      "Bash(rm -rf logo/)",
+      "PowerShell(vercel logs *)",
+      "Bash(timeout 15 npx next start -p 8765)",
+      "Bash(jobs -p)",
+      "Bash(kill 1243)"
     ]
   },
   "enabledMcpjsonServers": [

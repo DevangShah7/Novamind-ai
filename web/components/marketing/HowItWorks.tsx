@@ -10,7 +10,7 @@ const STEPS = [
   {
     n: '02',
     title: 'Pick a model',
-    body: 'Choose from llama3, mistral, qwen, and more — switching is one click.',
+    body: 'Choose from NovaMind Chat, Pro, and Code — switching is one click.',
   },
   {
     n: '03',

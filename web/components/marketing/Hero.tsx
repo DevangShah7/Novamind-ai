@@ -59,11 +59,13 @@ export default function Hero() {
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link href="/signup" className={buttonVariants({ size: 'lg' })}>
-              Get started free
-              <ArrowRight className="h-4 w-4" />
+              <span className="inline-flex items-center gap-2">
+                Get started free
+                <ArrowRight className="h-4 w-4" />
+              </span>
             </Link>
             <Link href="/pricing" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
-              View pricing
+              <span className="inline-flex items-center">View pricing</span>
             </Link>
           </div>
 
