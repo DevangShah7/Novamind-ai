@@ -351,12 +351,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             detail="Email not verified. Please check your inbox for the verification link.",
         )
 
-    # Success: clear failure state and bump token_version so any
-    # outstanding tokens from before this login become invalid.
+    # Success: clear failure state. token_version is intentionally NOT
+    # bumped here -- only logout and password change should invalidate
+    # prior sessions (see User.token_version docstring). Bumping on
+    # login would log out every other device whenever the user signs
+    # in somewhere new, which is hostile UX.
     user.failed_login_count = 0
     user.lockout_until = None
-    if hasattr(user, "token_version"):
-        user.token_version = (user.token_version or 0) + 1
     update_last_active(db, user.id)
     db.commit()
 
