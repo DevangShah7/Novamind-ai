@@ -1,0 +1,35 @@
+# Backend Docker build context. Keep the image small and free of
+# secrets / local junk that the developer never wanted in a container.
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+
+# Local dev artifacts
+.env
+.env.local
+.env.*.local
+*.db
+*.sqlite
+*.sqlite3
+novamind.db
+data/
+logs/
+tests/
+conftest.py
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts that don't belong in a runtime image
+*.egg-info/
+dist/
+build/

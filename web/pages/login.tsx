@@ -53,9 +53,16 @@ export default function Login() {
       localStorage.setItem('token', data.access_token);
       router.push('/chat');
     } catch (err: any) {
-      // Mock backend throws plain `new Error('Invalid email or password')`
-      // — fall back to a generic message for anything we don't recognise.
-      setError(err?.message || 'Login failed');
+      // Browsers throw a generic TypeError on a dead host / DNS failure
+      // ('Failed to fetch' on Chrome, 'Load failed' on Safari). Detect
+      // that family specifically and surface a friendlier message; the
+      // raw error string would otherwise leak to the user and look like
+      // a code bug.
+      const isNetwork = err instanceof TypeError || err?.name === 'TypeError';
+      const msg = isNetwork
+        ? "Couldn't reach the server. Check your connection and try again."
+        : err?.message || 'Login failed';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -82,28 +89,31 @@ export default function Login() {
 
   // Auto-fill (and submit, if ?go=1 is set) on ?demo=demo creds so a
   // shared link `https://...vercel.app/login?demo=demo` Just Works.
+  // Guarded so the deferred click never propagates an error out of the
+  // effect — that path was the source of the React #418/#423 hydration
+  // errors when the backend was unreachable.
   useEffect(() => {
     if (!router.isReady) return;
     const which = router.query.demo;
-    if (which === 'demo') {
-      setEmail('demo@novamind.ai');
-      setPassword('demo123');
-      if (router.query.go === '1') {
-        // small delay so state propagates
-        setTimeout(() => {
+    if (which !== 'demo' && which !== 'devang') return;
+    const creds = which === 'demo'
+      ? { email: 'demo@novamind.ai', password: 'demo123' }
+      : { email: 'devang@novamind.ai', password: 'NovaMind2026!' };
+    setEmail(creds.email);
+    setPassword(creds.password);
+    if (router.query.go === '1') {
+      // small delay so state propagates
+      const timer = setTimeout(() => {
+        try {
           const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
           f?.click();
-        }, 100);
-      }
-    } else if (which === 'devang') {
-      setEmail('devang@novamind.ai');
-      setPassword('NovaMind2026!');
-      if (router.query.go === '1') {
-        setTimeout(() => {
-          const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
-          f?.click();
-        }, 100);
-      }
+        } catch {
+          // Defensive: a thrown click handler would otherwise crash the
+          // hydration phase. handleSubmit already catches fetch errors
+          // and surfaces a user-readable message.
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [router.isReady, router.query.demo, router.query.go]);
 
@@ -129,8 +139,14 @@ export default function Login() {
             setPassword('demo123');
             // Submit on the next tick so React state has propagated.
             setTimeout(() => {
-              const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
-              f?.click();
+              try {
+                const f = document.getElementById('login-submit-btn') as HTMLButtonElement | null;
+                f?.click();
+              } catch {
+                // Defensive: see the comment in the ?demo= effect above.
+                // handleSubmit already converts fetch errors to a
+                // user-friendly inline message.
+              }
             }, 50);
           }}
           className="flex w-full items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:bg-primary/10"
