@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional, Any, Mapping
-import jwt
+# Use PyJWT directly. python-jose's jwt module is a PyJWT fork that doesn't
+# expose PyJWTError at the top level, so callers that want `jwt.PyJWTError`
+# (this file's decode_access_token) get the canonical PyJWT exception
+# hierarchy. We keep python-jose installed because it's a transitive dep
+# of passlib[bcrypt] on some platforms, but we don't depend on its API.
+import jwt  # PyJWT
 from passlib.context import CryptContext
 from app.core.config import settings
 

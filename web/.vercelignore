@@ -1,0 +1,41 @@
+# Vercel uploads the working tree (minus .git) when running `vercel --prod`
+# from the repo root with `web/` as the build context. Anything heavy that
+# isn't needed for the Next.js build should be ignored here. The web/ folder
+# itself is the build context, so .next/ and node_modules/ inside web/ are
+# uploaded but kept by Vercel (it uses them as build cache). backend/.venv
+# is NOT a build input but gets uploaded because we're cwd=repo-root.
+
+# Backend (not part of frontend build)
+backend/
+backend-app/
+
+# Local Python env (was the cause of the >2GiB upload error)
+.venv/
+backend/.venv/
+
+# Vercel runtime artifacts
+.vercel/
+
+# Logs
+logs/
+*.log
+logs\backend.log
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+
+# Tunnel state (committed previously; harmless but unrelated to web build)
+backend/tunnel-state.json
+backend/tunnel-*.log
+backend/tunnel-*.log.err
+scripts/tunnel*.log
+scripts/watchdog-*.log
+
+# Secret key file
+.secret-key
+
+# Local env files (don't ship them)
+.env
+.env.local
+.env.*.local

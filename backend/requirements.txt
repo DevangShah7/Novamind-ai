@@ -3,8 +3,17 @@ fastapi==0.95.2
 uvicorn[standard]==0.18.3
 sqlalchemy==1.4.23
 pydantic==1.10.13
-pydantic-settings==2.1.0
+# pydantic-settings is intentionally NOT pinned: it requires pydantic>=2.3,
+# but this project pins pydantic 1.x. config.py:3-14 falls back to the
+# BaseSettings shim that ships in pydantic 1.x.
 python-jose[cryptography]==3.3.0
+# PyJWT is what `import jwt` resolves to in security.py. python-jose vendors
+# its own fork but doesn't expose PyJWTError at the top level, so we
+# depend on the real PyJWT for the canonical type and let jose's
+# jose.jwt encode/decode be the implementation.
+PyJWT==2.8.0
+# pydantic[email] for EmailStr validators used in app/schemas/user.py.
+email-validator==2.1.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.5
 redis==4.2.0
