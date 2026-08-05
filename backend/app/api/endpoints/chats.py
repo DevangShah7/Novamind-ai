@@ -87,6 +87,26 @@ async def create_message_endpoint(
     if not chat or chat.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    # Image-mode branch: skip the LLM, hit Pollinations, and persist the
+    # resulting image as the AI message. The user message is also stored
+    # so the conversation log reads naturally ("user asked for an image →
+    # AI produced one"). The base64 lives in meta_data so we don't need a
+    # new column. `meta_data` is already JSON-shaped and tolerates any
+    # extra keys (see schemas/chat.py: MessageBase.meta_data: Optional[Any]).
+    if (
+        message_in.message_type is not None
+        and message_in.message_type.value == "image"
+    ):
+        return await _create_image_message(
+            chat_id=chat_id,
+            chat=chat,
+            message_in=message_in,
+            background_tasks=background_tasks,
+            request=request,
+            db=db,
+            current_user=current_user,
+        )
+
     # Store user message in database
     user_message = create_message(db=db, message=message_in, chat_id=chat_id, user_id=current_user.id)
 
@@ -217,3 +237,132 @@ def get_messages_endpoint(
     if not chat or chat.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Chat not found")
     return get_messages_by_chat(db=db, chat_id=chat_id, skip=skip, limit=limit)
+
+
+async def _create_image_message(
+    *,
+    chat_id: int,
+    chat,  # Chat SQLAlchemy row, kept for parity with text path
+    message_in: "MessageCreate",
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session,
+    current_user: User,
+):
+    """Persist a user "image request" + the AI's image result.
+
+    The frontend calls `POST /chats/{id}/messages` with
+    `message_type='image'` and the prompt in `content`. Style/size/seed
+    are pulled from `message_in.meta_data` (a dict on the frontend side)
+    so we don't have to grow the public MessageCreate schema.
+
+    Pollinations is best-effort and free, so failures bubble up as 502
+    BEFORE the user message is persisted — better to lose the click
+    than to leave a "user asked for an image" row with no answer.
+    """
+    import base64
+    from app.api.endpoints.image import generate_image_payload
+
+    # Style/size/seed come in via meta_data so the schema stays the same.
+    # Frontend always sends these keys, but tolerate their absence.
+    meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
+    style = meta_in.get("style")
+    width = int(meta_in.get("width") or 512)
+    height = int(meta_in.get("height") or 512)
+    seed = meta_in.get("seed")
+    try:
+        seed = int(seed) if seed is not None else None
+    except (TypeError, ValueError):
+        seed = None
+
+    # Clamp size — Pollinations free tier accepts up to ~1024×1024 but
+    # larger images blow past our 45 s timeout. Keep this in sync with
+    # the chip selector in MessageInput.tsx.
+    width = max(256, min(width, 1024))
+    height = max(256, min(height, 1024))
+
+    image_id, image_bytes, image_format, gen_meta = generate_image_payload(
+        prompt=message_in.content,
+        style=style,
+        width=width,
+        height=height,
+        seed=seed,
+    )
+
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+
+    # Persist the user's "I want an image of X" message first so the
+    # conversation reads naturally. message_type='image' so the
+    # frontend can render the prompt itself in a styled bubble.
+    user_message = create_message(
+        db=db,
+        message=message_in,  # already has message_type='image' + the prompt in content
+        chat_id=chat_id,
+        user_id=current_user.id,
+    )
+
+    chat_key = f"chat:{chat_id}:messages"
+    redis_client.lpush(
+        chat_key,
+        json.dumps(
+            {
+                "id": user_message.id,
+                "content": message_in.content,
+                "message_type": "image",
+                "is_ai": False,
+                "user_id": current_user.id,
+                "created_at": user_message.created_at.isoformat()
+                if hasattr(user_message.created_at, "isoformat")
+                else str(user_message.created_at),
+            }
+        ),
+    )
+    redis_client.ltrim(chat_key, 0, 9)
+    redis_client.expire(chat_key, 3600)
+
+    # Now persist the AI's image result. The base64 lives in meta_data so
+    # reloading the chat re-renders the image without any extra round trip.
+    ai_meta = {
+        **gen_meta,
+        "image_id": image_id,
+        "image_base64": image_b64,
+        "image_format": image_format,
+        "prompt": message_in.content,
+        "user_id": current_user.id,
+    }
+    ai_message = MessageCreate(
+        # Short caption above the image — the frontend renders the
+        # image itself from meta_data; this text is the breadcrumb
+        # in the conversation timeline and on hover/alt-text.
+        content=f"Here is your image of “{message_in.content}”.",
+        message_type=MessageType.IMAGE,
+        is_ai=True,
+        meta_data=ai_meta,
+    )
+    ai_message_db = create_message(
+        db=db,
+        message=ai_message,
+        chat_id=chat_id,
+        user_id=None,  # NULL for AI-authored messages
+    )
+
+    ai_message_data = {
+        "id": ai_message_db.id,
+        "content": ai_message.content,
+        "message_type": "image",
+        "is_ai": True,
+        "user_id": None,
+        "created_at": ai_message_db.created_at.isoformat()
+        if hasattr(ai_message_db.created_at, "isoformat")
+        else str(ai_message_db.created_at),
+    }
+    redis_client.lpush(chat_key, json.dumps(ai_message_data))
+    redis_client.ltrim(chat_key, 0, 9)
+
+    background_tasks.add_task(update_chat_last_message, db, chat_id)
+
+    # Surface generation metrics so /usage logging picks them up.
+    request.state.ai_tokens_used = None  # image gen doesn't use tokens
+    request.state.ai_model_used = gen_meta.get("generation_model")
+
+    return ai_message_db

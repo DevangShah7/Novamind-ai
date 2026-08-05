@@ -1,16 +1,118 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from typing import List, Optional, Dict, Any, Tuple
+from pydantic import BaseModel, Field
 from app.api import deps
 from app.models.user import User
 from app.core.config import settings
 import json
+import time
 import uuid
 import base64
+import httpx
+from urllib.parse import quote
 from datetime import datetime
 
 router = APIRouter()
+
+# Pollinations.ai is a free, no-API-key image generation service.
+# It supports FLUX and SDXL models. We proxy through the backend so
+# (a) the model choice / URL format isn't leaked to the browser,
+# (b) we can apply the user's style preference and width/height, and
+# (c) we don't burn Pollinations' rate-limit budget on every page load
+# just because the browser prefetched a route.
+POLLINATIONS_BASE = "https://image.pollinations.ai/prompt"
+
+# Default model. Pollinations also supports "turbo", "sana", "klein",
+# etc., but flux is the best free quality / speed tradeoff right now.
+POLLINATIONS_DEFAULT_MODEL = "flux"
+
+# How long to wait for Pollinations to render an image. FLUX is the
+# slowest case — typically 5–30 s on a free GPU; SDXL/SANA is faster.
+# 45 s gives a clean margin before we surface a 502 to the client.
+POLLINATIONS_TIMEOUT_S = 45.0
+
+
+def _pollinations_model_for_style(style: Optional[str]) -> str:
+    """Map our coarse `style` knob onto a Pollinations model id.
+
+    Pollinations doesn't expose style presets, but different models
+    have different aesthetic biases. Default to flux for "realistic"
+    and "artistic"; use the SDXL model when the user explicitly asks
+    for cartoon/anime — those prompts do better with SDXL.
+    """
+    if style in ("cartoon", "anime", "illustration"):
+        return "sana"  # SDXL-flavored model on Pollinations
+    return POLLINATIONS_DEFAULT_MODEL
+
+
+def generate_image_payload(
+    prompt: str,
+    style: Optional[str] = None,
+    width: int = 512,
+    height: int = 512,
+    seed: Optional[int] = None,
+) -> Tuple[str, bytes, str, Dict[str, Any]]:
+    """Call Pollinations and return (image_id, raw_bytes, format, meta).
+
+    One round trip upstream. `format` is "jpeg" or "png" derived from
+    the upstream Content-Type, so the browser renders the correct MIME
+    type when we build a `data:` URL on the frontend.
+
+    Raises HTTP 502 on any upstream failure — the HTTPException is the
+    public contract; callers (the standalone /image/generate endpoint
+    and the chat /messages image branch) just let it propagate.
+    """
+    model = _pollinations_model_for_style(style)
+    encoded_prompt = quote(prompt, safe="")
+    # Pollinations accepts a /prompt/<text>?width=&height=&model=&seed=&nologo=true
+    # query. `nologo=true` strips their watermark. `seed` makes repeat calls
+    # deterministic so users can iterate.
+    qs_parts = [
+        f"width={width}",
+        f"height={height}",
+        f"model={model}",
+        "nologo=true",
+        "enhance=false",
+    ]
+    if seed is not None:
+        qs_parts.append(f"seed={seed}")
+    upstream_url = f"{POLLINATIONS_BASE}/{encoded_prompt}?{'&'.join(qs_parts)}"
+
+    try:
+        upstream = httpx.get(
+            upstream_url, timeout=POLLINATIONS_TIMEOUT_S, follow_redirects=True
+        )
+        upstream.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Image generation upstream failed: {exc}",
+        ) from exc
+
+    image_bytes = upstream.content
+    if not image_bytes:
+        raise HTTPException(
+            status_code=502,
+            detail="Image generation upstream returned an empty body",
+        )
+
+    upstream_ct = upstream.headers.get("content-type", "image/jpeg")
+    image_format = "jpeg" if "jpeg" in upstream_ct or "jpg" in upstream_ct else "png"
+
+    image_id = str(uuid.uuid4())
+    meta = {
+        "generation_model": f"pollinations/{model}",
+        "generation_time": time.time(),
+        "seed": seed,
+        "width": width,
+        "height": height,
+        "style": style,
+        "bytes": len(image_bytes),
+        "format": image_format,
+    }
+    return image_id, image_bytes, image_format, meta
+
 
 class ImageGenerationRequest(BaseModel):
     prompt: str
@@ -18,12 +120,14 @@ class ImageGenerationRequest(BaseModel):
     width: int = 512
     height: int = 512
     quality: str = "standard"  # standard, hd
+    seed: Optional[int] = Field(default=None, description="Optional deterministic seed")
 
 class ImageGenerationResponse(BaseModel):
     image_id: str
     prompt: str
     image_url: Optional[str] = None
     image_base64: Optional[str] = None  # For direct embedding
+    image_format: str = "jpeg"  # "jpeg" or "png" — tells the browser the data: URL MIME type
     meta_data: Dict[str, Any]
     created_at: datetime
 
@@ -43,20 +147,18 @@ def generate_image(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """Generate an image from text prompt"""
-    import time
-    image_id = str(uuid.uuid4())
+    image_id, image_bytes, image_format, meta = generate_image_payload(
+        prompt=image_req.prompt,
+        style=image_req.style,
+        width=image_req.width,
+        height=image_req.height,
+        seed=image_req.seed,
+    )
 
-    # In production, this would integrate with:
-    # - Stable Diffusion, DALL-E, Midjourney APIs
-    # - Nova Image model (when available)
-    # - GPU-accelerated inference service
-
-    # Generate mock image data (a small colored square as base64 for demonstration)
-    # Create a simple 10x10 pixel image in PNG format (base64 encoded)
-    # This is just a placeholder - real implementation would return actual generated images
-    mock_image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-
-    # Store image metadata
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    # Track this image in the in-memory store so /image/{id} can look it up.
+    # The /image/{id} GET is used by the chat composer to re-render
+    # historical generations without re-fetching from Pollinations.
     image_data = {
         "id": image_id,
         "user_id": current_user.id,
@@ -65,12 +167,10 @@ def generate_image(
         "width": image_req.width,
         "height": image_req.height,
         "quality": image_req.quality,
+        "format": image_format,
+        "bytes": len(image_bytes),
         "created_at": datetime.utcnow(),
-        "meta_data": {
-            "generation_model": "nova-image-demo",
-            "generation_time": time.time(),
-            "user_id": current_user.id
-        }
+        "meta_data": {**meta, "user_id": current_user.id},
     }
     generated_images[image_id] = image_data
 
@@ -80,9 +180,10 @@ def generate_image(
     return ImageGenerationResponse(
         image_id=image_id,
         prompt=image_req.prompt,
-        image_base64=mock_image_base64,  # In production, this would be the actual image
+        image_base64=image_b64,
+        image_format=image_format,
         meta_data=image_data["meta_data"],
-        created_at=image_data["created_at"]
+        created_at=image_data["created_at"],
     )
 
 @router.post("/edit")

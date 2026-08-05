@@ -5,11 +5,80 @@ import MessageInput from '../../components/MessageInput';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message, asMeta } from '../../types';
-import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2 } from 'lucide-react';
+import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2, Download } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
 
 export const getServerSideProps = async () => ({ props: {} });
+
+// Small renderer for an image-typed message bubble. Reads base64 from
+// meta_data (the chat endpoint persists it there) and renders a real
+// <img>. A Download link lets the user save the file to disk.
+function ImageBubble({ msg }: { msg: Message }) {
+  const meta = asMeta(msg.meta_data) ?? {};
+  const b64 = typeof meta.image_base64 === 'string' ? meta.image_base64 : null;
+  const fmt = typeof meta.image_format === 'string' ? meta.image_format : 'jpeg';
+  const prompt = typeof meta.prompt === 'string' ? meta.prompt : msg.content;
+  const w = typeof meta.width === 'number' ? meta.width : null;
+  const h = typeof meta.height === 'number' ? meta.height : null;
+
+  if (!b64) {
+    // Defensive fallback — the row claims it's an image but the payload
+    // didn't round-trip. Surface something honest rather than a broken
+    // <img> icon.
+    return (
+      <div className="text-sm italic text-muted-foreground">
+        Image unavailable.
+      </div>
+    );
+  }
+
+  const dataUrl = `data:image/${fmt};base64,${b64}`;
+  const downloadName = `novamind-${msg.id}.${fmt === 'jpeg' ? 'jpg' : fmt}`;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-relaxed">{msg.content}</p>
+      <a
+        href={dataUrl}
+        download={downloadName}
+        className="group block max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-sm transition-shadow hover:shadow-md"
+      >
+        <img
+          src={dataUrl}
+          alt={prompt}
+          width={w ?? undefined}
+          height={h ?? undefined}
+          className="block h-auto w-full"
+        />
+      </a>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <a
+          href={dataUrl}
+          download={downloadName}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Download className="h-3 w-3" />
+          Download
+        </a>
+        {meta.generation_model && (
+          <>
+            <span>·</span>
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+              {String(meta.generation_model)}
+            </span>
+          </>
+        )}
+        {w && h && (
+          <>
+            <span>·</span>
+            <span>{w}×{h}</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ChatPage() {
   const router = useRouter();
@@ -90,11 +159,22 @@ export default function ChatPage() {
 
   const handleSendMessage = async (content: string) => {
     if (!user || !content.trim()) return;
+    // Image-mode options are stashed on window by MessageInput when the
+    // user has the image toggle on. Default to text. We pull this here
+    // (rather than lifting state through props) so MessageInput stays a
+    // drop-in component for both modes.
+    const pendingOpts =
+      typeof window !== 'undefined'
+        ? (window as any).__pendingImageOpts ?? null
+        : null;
     setLoading(true);
     setIsTyping(true);
     setError(null);
     try {
-      await sendMessage(chatId, content);
+      await sendMessage(chatId, content, {
+        messageType: pendingOpts?.messageType,
+        metaData: pendingOpts?.metaData,
+      });
       setLoading(false);
       await loadMessages();
       setIsTyping(false);
@@ -104,6 +184,12 @@ export default function ChatPage() {
       console.error(err);
       setLoading(false);
       setIsTyping(false);
+    } finally {
+      // Consume the opts so a subsequent text send isn't accidentally
+      // treated as another image.
+      if (typeof window !== 'undefined') {
+        (window as any).__pendingImageOpts = null;
+      }
     }
   };
 
@@ -257,7 +343,27 @@ export default function ChatPage() {
                           : 'rounded-tr-sm gradient-bg text-white'
                       }`}
                     >
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                      {msg.message_type === 'image' ? (
+                        msg.is_ai ? (
+                          <ImageBubble msg={msg} />
+                        ) : (
+                          // User side: they asked for an image. Show the
+                          // prompt as text and an image icon as a visual
+                          // breadcrumb. We don't have their text in
+                          // meta_data here (it's in `content`), so reuse it.
+                          <div className="space-y-1">
+                            <p className="whitespace-pre-wrap break-words leading-relaxed">
+                              {msg.content}
+                            </p>
+                            <p className="flex items-center gap-1 text-[11px] opacity-80">
+                              <Sparkles className="h-3 w-3" />
+                              Generating image…
+                            </p>
+                          </div>
+                        )
+                      ) : (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                      )}
                     </div>
 
                     <div className={`mt-1 flex items-center gap-2 text-xs text-muted-foreground ${msg.is_ai ? '' : 'flex-row-reverse'}`}>

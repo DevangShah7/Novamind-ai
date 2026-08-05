@@ -219,19 +219,36 @@ export const getMessages = async (chatId: string): Promise<Message[]> => {
   return res.json();
 };
 
-export const sendMessage = async (chatId: string, content: string): Promise<void> => {
+export const sendMessage = async (
+  chatId: string,
+  content: string,
+  options: { messageType?: 'text' | 'image'; metaData?: Record<string, any> } = {}
+): Promise<void> => {
   if (USE_MOCK) return mock.mockSendMessage(Number(chatId), content);
   const token = localStorage.getItem('token');
+  const body: Record<string, any> = { content };
+  if (options.messageType) body.message_type = options.messageType;
+  if (options.metaData) body.meta_data = options.metaData;
   const res = await fetch(`${API_URL}/chats/${chatId}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error('Failed to send message');
+    // Image generation upstream failures come back as 502 with a string
+    // detail; surface that as-is so the user sees the real reason.
+    const errBody = await res.json().catch(() => ({}));
+    const detail = errBody?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: any) => d.msg).join('; ')
+          : 'Failed to send message';
+    throw new Error(msg);
   }
 };
 
