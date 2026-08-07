@@ -54,12 +54,32 @@ def ollama_list_models() -> List[Dict[str, Any]]:
         return []
 
 
-def _to_openai_messages(messages: List[LLMMessage]) -> List[Dict[str, str]]:
+def _to_openai_messages(messages: List[Any]) -> List[Dict[str, str]]:
+    """Convert chat history into the OpenAI `{role, content}` shape.
+
+    Tolerates both ``LLMMessage`` instances and pre-shaped dicts
+    (``{"role": ..., "content": ...}``). The dict form is convenient for
+    callers that don't need full ``LLMMessage`` semantics — e.g. the
+    file-outline generators in ``app/api/endpoints/files.py`` that only
+    ever send a single user turn. Defending against the dict form here
+    keeps a stray call from crashing the whole stealth-router path with
+    ``AttributeError: 'dict' object has no attribute 'is_ai'`` and
+    returning the canned "having trouble reaching the model" reply.
+    """
     out: List[Dict[str, str]] = []
     for m in messages:
-        role = "assistant" if m.is_ai else "user"
-        if m.content:
-            out.append({"role": role, "content": m.content})
+        # Dict form: trust the caller, just forward role/content.
+        if isinstance(m, dict):
+            role = m.get("role") or "user"
+            content = m.get("content") or ""
+            if content:
+                out.append({"role": role, "content": content})
+            continue
+        # LLMMessage form: derive role from is_ai.
+        role = "assistant" if getattr(m, "is_ai", False) else "user"
+        content = getattr(m, "content", "") or ""
+        if content:
+            out.append({"role": role, "content": content})
     return out
 
 

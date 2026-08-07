@@ -34,7 +34,7 @@ from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, HTTPException
 
 from app.core.code_runner import CodeRunResult, run as run_code
-from app.core.llm_service import get_llm_service
+from app.core.llm_service import LLMMessage, LLMMessageType, get_llm_service
 
 logger = logging.getLogger("novamind.files")
 
@@ -75,8 +75,20 @@ async def _llm_outline(prompt: str, *, model_name: str = "NovaMind-Chat") -> str
     """
     try:
         llm = get_llm_service(model_name=model_name)
+        # The chat surface expects `List[LLMMessage]`, NOT raw dicts.
+        # Earlier we passed `{"role": ..., "content": ...}` dicts which
+        # made the Ollama backend's `_to_openai_messages` crash on
+        # `m.is_ai` and fall through to the canned "having trouble
+        # reaching the model" reply — every slide in the deck ended up
+        # padded with placeholder titles because the LLM was never
+        # actually called. Wrap the prompt in a real LLMMessage so the
+        # full async path runs and we get real model output.
         messages = [
-            {"role": "user", "content": prompt},
+            LLMMessage(
+                content=prompt,
+                message_type=LLMMessageType.TEXT,
+                is_ai=False,
+            ),
         ]
         resp = await llm.generate_response(messages=messages, temperature=0.4, max_tokens=2000)
         return (resp.content or "").strip()
@@ -151,23 +163,41 @@ def _strip_code_fence(raw: str) -> str:
     return text.strip()
 
 
-def _safe_json_loads(raw: str) -> Optional[Dict[str, Any]]:
-    """Try hard to parse the LLM's JSON. Returns None on failure so the
-    caller can fall back to a degraded path instead of 502ing."""
+def _safe_json_loads(raw: str) -> Optional[Any]:
+    """Try hard to parse the LLM's JSON. Returns the parsed value on
+    success — a dict for the conventional `{...}` payload, a list for
+    the bare-array payload some models emit (`[{...}, {...}]`), or
+    None on failure so the caller can fall back to a degraded path
+    instead of 502ing."""
     text = raw.strip()
     # Strip ```json ... ``` fences if present.
     m = re.match(r"^```(?:json)?\s*\n(.*?)\n```\s*$", text, re.DOTALL)
     if m:
         text = m.group(1)
-    # Find the first { and the matching } so trailing prose doesn't
-    # poison the parse — LLMs often append "Here's the JSON:" preamble.
+    # Prefer the first balanced {...} block, then the first balanced
+    # [...] block, then a full-text parse. Models love to wrap the
+    # answer in preamble like "Here's the JSON:" so we can't trust a
+    # naive text[start:end] window.  We also handle the bare-array
+    # case (`[...]`) because small instruct models frequently skip
+    # the requested wrapper and just emit the list.
     start = text.find("{")
     end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return None
-    candidate = text[start : end + 1]
+    if start != -1 and end > start:
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end > start:
+        candidate = text[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
     try:
-        return json.loads(candidate)
+        return json.loads(text)
     except json.JSONDecodeError:
         return None
 
@@ -183,6 +213,104 @@ PPT_THEMES = {
     "academic": {"master": 2, "accent": "8B0000"},
     "pitch-deck": {"master": 0, "accent": "C00000"},
 }
+
+
+# Section labels used when we pad missing slides. Generic enough to fit
+# any topic; the first slide is always the title page.
+_PPTX_PAD_TITLES = [
+    "Overview",
+    "Key Points",
+    "Why It Matters",
+    "Next Steps",
+    "Risks & Open Questions",
+    "Summary",
+    "Deep Dive",
+    "Data & Evidence",
+    "Alternatives",
+    "Recommendations",
+    "Appendix",
+    "Q&A",
+]
+
+
+def _clean_slide_title(title: str) -> str:
+    """Strip common LLM artifacts from slide titles:
+    - leading "Slide 1:" / "Slide 1 -" prefixes
+    - leading numbering "1." / "1)"
+    - surrounding quotes
+    - extra whitespace.
+    """
+    t = (title or "").strip().strip('"').strip("'").strip()
+    # Strip "Slide N:" / "Slide N -" / "Slide N —" prefixes.
+    import re as _re
+    t = _re.sub(r"^slide\s+\d+\s*[:\-—–]\s*", "", t, flags=_re.IGNORECASE)
+    # Strip leading "1." / "1)" numbering.
+    t = _re.sub(r"^\d+\s*[\.\)]\s*", "", t)
+    return t.strip() or "Slide"
+
+
+def _pad_bullets(prompt: str, idx: int, total: int) -> list:
+    """Generate fallback bullets when a slide is missing or empty.
+    The first padded slide is the title page (single short bullet).
+    Otherwise we derive 3-4 generic-but-relevant bullets from the prompt."""
+    if idx == 0:
+        return [prompt[:160].strip()]
+    base = prompt[:120].rstrip(" .,;:-")
+    return [
+        f"Context: {base}",
+        f"Key consideration for slide {idx + 1} of {total}",
+        "Add supporting evidence or examples here",
+        "Discuss trade-offs and follow-up questions",
+    ]
+
+
+def _extract_slides(parsed: Any) -> list:
+    """Pull the slide list out of whatever shape the LLM happened to
+    emit. Supports the conventional `{"slides": [...]}` wrapper AND a
+    bare `[...]` array — the latter is what small instruct models
+    actually produce when they skip the wrapper instruction. Returns a
+    list of dicts; non-dict entries are dropped.
+    """
+    if isinstance(parsed, list):
+        candidates = parsed
+    elif isinstance(parsed, dict):
+        candidates = parsed.get("slides") or []
+    else:
+        candidates = []
+    return [s for s in candidates if isinstance(s, dict)]
+
+
+def _fill_slides(slides: list, slide_count: int, prompt: str) -> list:
+    """Pad / normalize the LLM's `slides` array to exactly `slide_count`
+    entries. Each returned entry is a dict with cleaned `title`,
+    non-empty `bullets`, and `notes`. We never return fewer entries than
+    the user asked for — that's the contract."""
+    cleaned = []
+    for idx in range(slide_count):
+        if idx < len(slides) and isinstance(slides[idx], dict):
+            s = slides[idx]
+            title = _clean_slide_title(str(s.get("title") or ""))
+            bullets_raw = s.get("bullets") or []
+            if not isinstance(bullets_raw, list):
+                bullets_raw = [str(bullets_raw)]
+            bullets = [str(b).strip() for b in bullets_raw if str(b).strip()]
+            if not bullets:
+                bullets = _pad_bullets(prompt, idx, slide_count)
+            notes = str(s.get("notes") or "").strip()[:500]
+            cleaned.append({"title": title, "bullets": bullets, "notes": notes})
+        else:
+            # Padded slot. Use a deterministic but topic-aware title.
+            pad_title = _PPTX_PAD_TITLES[
+                (idx - 1) % len(_PPTX_PAD_TITLES) if idx > 0 else 0
+            ]
+            if idx > 0:
+                pad_title = f"{pad_title} ({idx + 1}/{slide_count})"
+            cleaned.append({
+                "title": pad_title,
+                "bullets": _pad_bullets(prompt, idx, slide_count),
+                "notes": "",
+            })
+    return cleaned
 
 
 async def generate_pptx_payload(
@@ -210,20 +338,54 @@ async def generate_pptx_payload(
     theme_key = theme if theme in PPT_THEMES else "modern"
     accent_hex = PPT_THEMES[theme_key]["accent"]
 
-    # Step 1: get the outline.
+    # Step 1: get the outline. The local model (llama3.2:3b) doesn't reliably
+    # emit a `{"slides": [...]}` array of the right length, so we ask for
+    # numbered slides explicitly and explicitly constrain the shape. The
+    # fallback in `_fill_slides` below pads the missing slots if the model
+    # still returns too few.
     instruction = (
-        f"Create a JSON outline for a {slide_count}-slide presentation about: {prompt}. "
-        "Respond with ONLY JSON in this exact shape, no prose:\n"
-        '{"slides":[{"title":"...","bullets":["...","..."],"notes":"..."},...]} '
-        f"Produce exactly {slide_count} objects in the slides array."
+        f"You are drafting a {slide_count}-slide presentation on this topic:\n\n"
+        f"TOPIC: {prompt}\n\n"
+        f"Output ONLY a JSON object with exactly {slide_count} entries in a "
+        '"slides" array. Each entry must have:\n'
+        '  - "title": 4-8 word slide title (NOT the topic again, NOT "Slide N")\n'
+        '  - "bullets": array of 3-5 short bullet points about THAT slide\n'
+        '  - "notes": one short sentence for the speaker (optional, can be "")\n\n'
+        f"Write exactly {slide_count} entries — one per slide. No prose, no "
+        "markdown fences, no commentary. Output the JSON object only."
     )
 
     raw = await _llm_outline(instruction, model_name=model_name)
     parsed = _safe_json_loads(raw) or {}
-    slides = parsed.get("slides") or []
-    if not slides:
-        # Degraded fallback — better than 502 for a transient bad output.
-        slides = [{"title": prompt[:60], "bullets": [prompt[:200]], "notes": ""}]
+    # `_safe_json_loads` returns a dict for `{...}` payloads and a list
+    # for `[...]` payloads (the LLM sometimes skips the wrapper).
+    # Normalize both to a list of slide dicts.
+    slides = _extract_slides(parsed)
+
+    # If we got fewer than half of what was requested, retry once with a
+    # stricter prompt. The retry often pushes small models past the
+    # "I'm done" stopping bias.
+    if len(slides) < max(1, slide_count // 2):
+        retry_instruction = (
+            f"Output ONLY a JSON object with a 'slides' array of EXACTLY "
+            f"{slide_count} entries. Topic: {prompt}. "
+            'Each entry: {"title": str, "bullets": [str, str, str], "notes": str}. '
+            f"You must include {slide_count} entries — no fewer. No prose."
+        )
+        try:
+            retry_raw = await _llm_outline(retry_instruction, model_name=model_name)
+            retry_parsed = _safe_json_loads(retry_raw) or {}
+            retry_slides = _extract_slides(retry_parsed)
+            if len(retry_slides) > len(slides):
+                slides = retry_slides
+        except HTTPException:
+            # Retry failure is non-fatal; we'll fall through to padding.
+            pass
+
+    # Always pad to the requested count. Missing slides get a deterministic
+    # "Section N of M" title + bullets derived from the prompt so the deck
+    # is still useful instead of silently truncated.
+    slides = _fill_slides(slides, slide_count, prompt)
 
     # Step 2: build the .pptx.
     prs = Presentation()
@@ -342,22 +504,63 @@ def generate_docx_payload(
     style = style if style in DOCX_STYLES else "report"
 
     instruction = (
-        f"Write a {style}-style document about: {prompt}. "
-        "Respond with ONLY JSON in this exact shape, no prose:\n"
-        '{"title":"...","sections":[{"heading":"...","paragraphs":["...","..."]},...]} '
-        "Limit to 5 sections and 4 paragraphs per section."
+        f"You are drafting a {style}-style document on this topic:\n\n"
+        f"TOPIC: {prompt}\n\n"
+        "Output ONLY a JSON object with this exact shape, no prose:\n"
+        '{"title":"...",'
+        '"sections":[{"heading":"...","paragraphs":["...","..."]},...]} '
+        "Include 4-5 sections and 2-3 short paragraphs per section. "
+        "No markdown fences, no commentary, JSON only."
     )
 
-    # We're called from inside the FastAPI event loop, so we cannot use
-    # `asyncio.run()` (would raise "cannot be called from a running event
-    # loop"). The `_llm_outline_sync` shim talks to Ollama via httpx.Client
-    # which is safe inside a sync function in an async context.
+    # Same async-loop avoidance as `_llm_outline_sync`: we are inside the
+    # FastAPI event loop, so we use the sync httpx shim rather than
+    # `asyncio.run()`.
     raw = _llm_outline_sync(instruction, model_name=model_name)
     parsed = _safe_json_loads(raw) or {}
-    title = (parsed.get("title") or prompt[:80]).strip()
-    sections = parsed.get("sections") or [
-        {"heading": "Overview", "paragraphs": [prompt[:400]]}
-    ]
+    # `_safe_json_loads` returns a dict for the conventional
+    # `{title, sections}` payload and a list for the bare-array
+    # variant the small model sometimes emits.
+    if isinstance(parsed, list):
+        title = prompt[:80]
+        sections_raw = parsed
+    else:
+        title = (parsed.get("title") or prompt[:80]).strip()
+        sections_raw = parsed.get("sections") or []
+    sections = []
+    for sec in sections_raw:
+        if not isinstance(sec, dict):
+            continue
+        heading = _clean_slide_title(str(sec.get("heading") or "Section"))
+        paras_raw = sec.get("paragraphs") or []
+        if not isinstance(paras_raw, list):
+            paras_raw = [str(paras_raw)]
+        paragraphs = [str(p).strip() for p in paras_raw if str(p).strip()]
+        if not paragraphs:
+            paragraphs = [f"Discuss {heading.lower()} as it relates to {prompt[:80]}."]
+        sections.append({"heading": heading, "paragraphs": paragraphs})
+
+    # Pad missing sections so the doc isn't truncated to whatever the
+    # small model felt like producing.
+    if len(sections) < 4:
+        pad_headings = [
+            "Background",
+            "Key Findings",
+            "Recommendations",
+            "Next Steps",
+        ][: 4 - len(sections)]
+        for pad_heading in pad_headings:
+            sections.append({
+                "heading": pad_heading,
+                "paragraphs": [
+                    f"Add details on {pad_heading.lower()} for {prompt[:80]}.",
+                    f"Cite supporting evidence and examples here.",
+                ],
+            })
+
+    # Final safety net.
+    if not sections:
+        sections = [{"heading": "Overview", "paragraphs": [prompt[:400]]}]
 
     doc = Document()
     # Title.
