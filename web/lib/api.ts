@@ -222,7 +222,10 @@ export const getMessages = async (chatId: string): Promise<Message[]> => {
 export const sendMessage = async (
   chatId: string,
   content: string,
-  options: { messageType?: 'text' | 'image'; metaData?: Record<string, any> } = {}
+  options: {
+    messageType?: 'text' | 'image' | 'file' | 'code';
+    metaData?: Record<string, any>;
+  } = {}
 ): Promise<void> => {
   if (USE_MOCK) return mock.mockSendMessage(Number(chatId), content);
   const token = localStorage.getItem('token');
@@ -238,16 +241,26 @@ export const sendMessage = async (
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    // Image generation upstream failures come back as 502 with a string
-    // detail; surface that as-is so the user sees the real reason.
+    // The chat dispatcher raises structured errors of two shapes:
+    //   1. HTTPException(detail="free-form string") — image upstream
+    //      failures and 502s from providers.
+    //   2. HTTPException(detail={code: "...", message: "..."}) —
+    //      LLM unavailability / pptx_build_failed / docx_build_failed.
+    // Both should land in the toast as a user-readable sentence. Pydantic
+    // validation errors come back as an array of `{loc, msg, type}`; we
+    // flatten those too.
     const errBody = await res.json().catch(() => ({}));
     const detail = errBody?.detail;
-    const msg =
-      typeof detail === 'string'
-        ? detail
-        : Array.isArray(detail)
-          ? detail.map((d: any) => d.msg).join('; ')
-          : 'Failed to send message';
+    let msg: string;
+    if (typeof detail === 'string') {
+      msg = detail;
+    } else if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
+      msg = detail.message;
+    } else if (Array.isArray(detail)) {
+      msg = detail.map((d: any) => d?.msg).filter(Boolean).join('; ');
+    } else {
+      msg = `Failed to send message (HTTP ${res.status})`;
+    }
     throw new Error(msg);
   }
 };

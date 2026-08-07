@@ -107,6 +107,58 @@ async def create_message_endpoint(
             current_user=current_user,
         )
 
+    # File-mode branches: PPT / Word / Code. We use the existing
+    # MessageType.CODE and MessageType.FILE enum values (no schema
+    # migration) and discriminate within `file` by meta_data.kind
+    # ("pptx" / "docx"). Each branch mirrors _create_image_message:
+    # skip the LLM codepath, run the file generator, persist a user +
+    # AI message pair, push to Redis, set request.state for usage.
+    if (
+        message_in.message_type is not None
+        and message_in.message_type.value == "file"
+    ):
+        meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
+        kind = (meta_in.get("kind") or "").lower()
+        if kind == "pptx":
+            return await _create_pptx_message(
+                chat_id=chat_id,
+                chat=chat,
+                message_in=message_in,
+                background_tasks=background_tasks,
+                request=request,
+                db=db,
+                current_user=current_user,
+            )
+        if kind == "docx":
+            return await _create_docx_message(
+                chat_id=chat_id,
+                chat=chat,
+                message_in=message_in,
+                background_tasks=background_tasks,
+                request=request,
+                db=db,
+                current_user=current_user,
+            )
+        # Unknown `kind` — fall through to the LLM codepath so the user
+        # gets a sane error rather than a 502. The LLM will likely
+        # echo the prompt back, which is the closest thing to a useful
+        # response when the frontend is out of sync with the backend.
+        logger.warning("Unknown file kind=%r on chat %s — falling through", kind, chat_id)
+
+    if (
+        message_in.message_type is not None
+        and message_in.message_type.value == "code"
+    ):
+        return await _create_code_message(
+            chat_id=chat_id,
+            chat=chat,
+            message_in=message_in,
+            background_tasks=background_tasks,
+            request=request,
+            db=db,
+            current_user=current_user,
+        )
+
     # Store user message in database
     user_message = create_message(db=db, message=message_in, chat_id=chat_id, user_id=current_user.id)
 
@@ -365,4 +417,311 @@ async def _create_image_message(
     request.state.ai_tokens_used = None  # image gen doesn't use tokens
     request.state.ai_model_used = gen_meta.get("generation_model")
 
+    return ai_message_db
+
+
+# ----- File-mode helpers (PPT / Word / Code) -------------------------------
+#
+# These three functions mirror _create_image_message above. Each:
+#   1. Skips the LLM codepath
+#   2. Calls into app/api/endpoints/files.py for the actual generator
+#   3. Persists a user row + AI row, both with message_type preserved
+#   4. Pushes both to Redis so the chat history reads naturally
+#   5. Schedules update_chat_last_message
+#   6. Sets request.state.ai_tokens_used / ai_model_used for /usage
+#
+# We keep the file payload in meta_data (base64) so reloading the chat
+# re-renders without a round trip. For PPT/Word the payload is small
+# enough (<200 KiB) to live there. For code we store the source itself
+# (often <2 KiB) plus stdout/stderr.
+
+
+async def _create_pptx_message(
+    *,
+    chat_id: int,
+    chat,
+    message_in: "MessageCreate",
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session,
+    current_user: User,
+):
+    """Persist a user "make me a slide deck" + the AI's .pptx result."""
+    import base64
+    from app.api.endpoints.files import generate_pptx_payload, file_b64
+
+    meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
+    theme = (meta_in.get("theme") or "modern").lower()
+    slide_count = int(meta_in.get("slide_count") or 6)
+    model_name = message_in.model or "NovaMind-Chat"
+
+    payload_bytes, filename, gen_meta = await generate_pptx_payload(
+        prompt=message_in.content,
+        theme=theme,
+        slide_count=slide_count,
+        model_name=model_name,
+    )
+
+    # Persist user message first so the conversation reads naturally.
+    user_message = create_message(
+        db=db,
+        message=message_in,
+        chat_id=chat_id,
+        user_id=current_user.id,
+    )
+
+    chat_key = f"chat:{chat_id}:messages"
+    redis_client.lpush(
+        chat_key,
+        json.dumps(
+            {
+                "id": user_message.id,
+                "content": message_in.content,
+                "message_type": "file",
+                "is_ai": False,
+                "user_id": current_user.id,
+                "created_at": user_message.created_at.isoformat()
+                if hasattr(user_message.created_at, "isoformat")
+                else str(user_message.created_at),
+            }
+        ),
+    )
+    redis_client.ltrim(chat_key, 0, 9)
+    redis_client.expire(chat_key, 3600)
+
+    ai_meta = {
+        **gen_meta,
+        "file_b64": file_b64(payload_bytes),
+        "user_id": current_user.id,
+    }
+    ai_message = MessageCreate(
+        content=f"Here is your presentation, “{message_in.content}”.",
+        message_type=MessageType.FILE,
+        is_ai=True,
+        meta_data=ai_meta,
+    )
+    ai_message_db = create_message(
+        db=db,
+        message=ai_message,
+        chat_id=chat_id,
+        user_id=None,
+    )
+
+    ai_message_data = {
+        "id": ai_message_db.id,
+        "content": ai_message.content,
+        "message_type": "file",
+        "is_ai": True,
+        "user_id": None,
+        "created_at": ai_message_db.created_at.isoformat()
+        if hasattr(ai_message_db.created_at, "isoformat")
+        else str(ai_message_db.created_at),
+    }
+    redis_client.lpush(chat_key, json.dumps(ai_message_data))
+    redis_client.ltrim(chat_key, 0, 9)
+
+    background_tasks.add_task(update_chat_last_message, db, chat_id)
+
+    request.state.ai_tokens_used = None
+    request.state.ai_model_used = gen_meta.get("model_used")
+    return ai_message_db
+
+
+async def _create_docx_message(
+    *,
+    chat_id: int,
+    chat,
+    message_in: "MessageCreate",
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session,
+    current_user: User,
+):
+    """Persist a user "draft me a document" + the AI's .docx result."""
+    from app.api.endpoints.files import generate_docx_payload, file_b64
+
+    meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
+    style = (meta_in.get("style") or "report").lower()
+    model_name = message_in.model or "NovaMind-Chat"
+
+    payload_bytes, filename, gen_meta = generate_docx_payload(
+        prompt=message_in.content,
+        style=style,
+        model_name=model_name,
+    )
+
+    user_message = create_message(
+        db=db,
+        message=message_in,
+        chat_id=chat_id,
+        user_id=current_user.id,
+    )
+
+    chat_key = f"chat:{chat_id}:messages"
+    redis_client.lpush(
+        chat_key,
+        json.dumps(
+            {
+                "id": user_message.id,
+                "content": message_in.content,
+                "message_type": "file",
+                "is_ai": False,
+                "user_id": current_user.id,
+                "created_at": user_message.created_at.isoformat()
+                if hasattr(user_message.created_at, "isoformat")
+                else str(user_message.created_at),
+            }
+        ),
+    )
+    redis_client.ltrim(chat_key, 0, 9)
+    redis_client.expire(chat_key, 3600)
+
+    ai_meta = {
+        **gen_meta,
+        "file_b64": file_b64(payload_bytes),
+        "user_id": current_user.id,
+    }
+    ai_message = MessageCreate(
+        content=f"Here is your document, “{message_in.content}”.",
+        message_type=MessageType.FILE,
+        is_ai=True,
+        meta_data=ai_meta,
+    )
+    ai_message_db = create_message(
+        db=db,
+        message=ai_message,
+        chat_id=chat_id,
+        user_id=None,
+    )
+
+    ai_message_data = {
+        "id": ai_message_db.id,
+        "content": ai_message.content,
+        "message_type": "file",
+        "is_ai": True,
+        "user_id": None,
+        "created_at": ai_message_db.created_at.isoformat()
+        if hasattr(ai_message_db.created_at, "isoformat")
+        else str(ai_message_db.created_at),
+    }
+    redis_client.lpush(chat_key, json.dumps(ai_message_data))
+    redis_client.ltrim(chat_key, 0, 9)
+
+    background_tasks.add_task(update_chat_last_message, db, chat_id)
+
+    request.state.ai_tokens_used = None
+    request.state.ai_model_used = gen_meta.get("model_used")
+    return ai_message_db
+
+
+async def _create_code_message(
+    *,
+    chat_id: int,
+    chat,
+    message_in: "MessageCreate",
+    background_tasks: BackgroundTasks,
+    request: Request,
+    db: Session,
+    current_user: User,
+):
+    """Persist a user "run this code" + the AI's run result.
+
+    Unlike PPT/Word we don't return a downloadable file — the AI
+    message is the source code + its stdout/stderr, and the frontend
+    renders that as a code block with a Play / "run again" affordance.
+    """
+    from app.api.endpoints.files import generate_code_payload
+
+    meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
+    language = (meta_in.get("language") or "python").lower()
+    model_name = message_in.model or "NovaMind-Code"
+    timeout_s = float(meta_in.get("timeout_s") or 8.0)
+
+    result, gen_meta = generate_code_payload(
+        prompt=message_in.content,
+        language=language,
+        model_name=model_name,
+        timeout_s=timeout_s,
+    )
+
+    user_message = create_message(
+        db=db,
+        message=message_in,
+        chat_id=chat_id,
+        user_id=current_user.id,
+    )
+
+    chat_key = f"chat:{chat_id}:messages"
+    redis_client.lpush(
+        chat_key,
+        json.dumps(
+            {
+                "id": user_message.id,
+                "content": message_in.content,
+                "message_type": "code",
+                "is_ai": False,
+                "user_id": current_user.id,
+                "created_at": user_message.created_at.isoformat()
+                if hasattr(user_message.created_at, "isoformat")
+                else str(user_message.created_at),
+            }
+        ),
+    )
+    redis_client.ltrim(chat_key, 0, 9)
+    redis_client.expire(chat_key, 3600)
+
+    # Persist the actual run result. `code_runner.CodeRunResult.to_meta()`
+    # produces a JSON-safe dict; we merge in the generator metadata so
+    # the chat page can show "language: python, 234 ms".
+    run_meta = result.to_meta()
+    ai_meta = {
+        **gen_meta,
+        **run_meta,
+        "user_id": current_user.id,
+    }
+
+    # Build a short human-readable caption. The frontend renders the
+    # full code + stdout in the bubble; this is the breadcrumb.
+    if result.runtime_missing:
+        caption = f"I couldn't run the {language} code: {result.stderr or 'missing runtime'}."
+    elif result.timed_out:
+        caption = f"Code execution timed out after {result.elapsed_ms} ms."
+    elif result.exit_code == 0:
+        first_line = (result.stdout or "").splitlines()[0] if result.stdout else ""
+        caption = f"Ran successfully in {result.elapsed_ms} ms"
+        if first_line:
+            caption += f" — first line: {first_line[:80]}"
+    else:
+        caption = f"Code exited with code {result.exit_code}."
+
+    ai_message = MessageCreate(
+        content=caption,
+        message_type=MessageType.CODE,
+        is_ai=True,
+        meta_data=ai_meta,
+    )
+    ai_message_db = create_message(
+        db=db,
+        message=ai_message,
+        chat_id=chat_id,
+        user_id=None,
+    )
+
+    ai_message_data = {
+        "id": ai_message_db.id,
+        "content": ai_message.content,
+        "message_type": "code",
+        "is_ai": True,
+        "user_id": None,
+        "created_at": ai_message_db.created_at.isoformat()
+        if hasattr(ai_message_db.created_at, "isoformat")
+        else str(ai_message_db.created_at),
+    }
+    redis_client.lpush(chat_key, json.dumps(ai_message_data))
+    redis_client.ltrim(chat_key, 0, 9)
+
+    background_tasks.add_task(update_chat_last_message, db, chat_id)
+
+    request.state.ai_tokens_used = None
+    request.state.ai_model_used = gen_meta.get("model_used")
     return ai_message_db

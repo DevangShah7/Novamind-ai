@@ -5,7 +5,7 @@ import MessageInput from '../../components/MessageInput';
 import AppShell, { SidebarChatList } from '../../components/AppShell';
 import { useAuth } from '../../lib/auth';
 import { Chat, Message, asMeta } from '../../types';
-import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2, Download } from 'lucide-react';
+import { Brain, Sparkles, Copy, Check, MoreVertical, Loader2, Download, Presentation, FileText, Code2, Terminal, AlertTriangle } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
 
@@ -76,6 +76,249 @@ function ImageBubble({ msg }: { msg: Message }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// PowerPoint (.pptx) bubble. Reads `file_b64` (base64-encoded
+// presentation), `filename`, `size_bytes`, and a few descriptive
+// metadata fields from `meta_data`. Renders a download-card with the
+// theme + slide count pill, similar in spirit to ImageBubble.
+function PptxBubble({ msg }: { msg: Message }) {
+  const meta = asMeta(msg.meta_data) ?? {};
+  const b64 = typeof meta.file_b64 === 'string' ? meta.file_b64 : null;
+  const filename =
+    typeof meta.filename === 'string' ? meta.filename : `slides-${msg.id}.pptx`;
+  const sizeBytes = typeof meta.size_bytes === 'number' ? meta.size_bytes : null;
+  const theme = typeof meta.theme === 'string' ? meta.theme : null;
+  const slideCount = typeof meta.slide_count === 'number' ? meta.slide_count : null;
+  const modelUsed = typeof meta.model_used === 'string' ? meta.model_used : null;
+
+  if (!b64) {
+    return (
+      <div className="text-sm italic text-muted-foreground">
+        Presentation unavailable.
+      </div>
+    );
+  }
+
+  const dataUrl = `data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,${b64}`;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-relaxed">{msg.content}</p>
+      <a
+        href={dataUrl}
+        download={filename}
+        className="group flex max-w-md items-start gap-3 rounded-xl border border-border bg-background p-3.5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+      >
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400">
+          <Presentation className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{filename}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+              PPTX
+            </span>
+            {slideCount != null && <span>{slideCount} slides</span>}
+            {theme && (
+              <>
+                <span>·</span>
+                <span>{theme}</span>
+              </>
+            )}
+            {sizeBytes != null && (
+              <>
+                <span>·</span>
+                <span>{Math.ceil(sizeBytes / 1024)} KB</span>
+              </>
+            )}
+          </p>
+        </div>
+        <Download className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+      </a>
+      {modelUsed && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+            {modelUsed}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Word (.docx) bubble. Mirror of PptxBubble but with a different icon
+// and the docx-specific metadata (style, paragraph_count).
+function DocxBubble({ msg }: { msg: Message }) {
+  const meta = asMeta(msg.meta_data) ?? {};
+  const b64 = typeof meta.file_b64 === 'string' ? meta.file_b64 : null;
+  const filename =
+    typeof meta.filename === 'string' ? meta.filename : `document-${msg.id}.docx`;
+  const sizeBytes = typeof meta.size_bytes === 'number' ? meta.size_bytes : null;
+  const style = typeof meta.style === 'string' ? meta.style : null;
+  const paragraphCount = typeof meta.paragraph_count === 'number' ? meta.paragraph_count : null;
+  const modelUsed = typeof meta.model_used === 'string' ? meta.model_used : null;
+
+  if (!b64) {
+    return (
+      <div className="text-sm italic text-muted-foreground">
+        Document unavailable.
+      </div>
+    );
+  }
+
+  const dataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${b64}`;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-relaxed">{msg.content}</p>
+      <a
+        href={dataUrl}
+        download={filename}
+        className="group flex max-w-md items-start gap-3 rounded-xl border border-border bg-background p-3.5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+      >
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+          <FileText className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{filename}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase">
+              DOCX
+            </span>
+            {style && (
+              <>
+                <span className="capitalize">{style}</span>
+                <span>·</span>
+              </>
+            )}
+            {paragraphCount != null && <span>{paragraphCount} paragraphs</span>}
+            {sizeBytes != null && (
+              <>
+                <span>·</span>
+                <span>{Math.ceil(sizeBytes / 1024)} KB</span>
+              </>
+            )}
+          </p>
+        </div>
+        <Download className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
+      </a>
+      {modelUsed && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+            {modelUsed}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Code-run bubble. The backend executed the user's code in a
+// sandboxed subprocess and persisted the result in meta_data. We
+// render: a header chip (language, exit code, elapsed), the source
+// code in a monospace block with a Copy button, and stdout/stderr in
+// a collapsible panel. Failures (`runtime_missing`, `timed_out`, non-
+// zero exit) get an error-state pill so the user sees at a glance.
+function CodeBubble({ msg }: { msg: Message }) {
+  const meta = asMeta(msg.meta_data) ?? {};
+  const language = typeof meta.language === 'string' ? meta.language : 'python';
+  const code = typeof meta.code === 'string' ? meta.code : '';
+  const stdout = typeof meta.stdout === 'string' ? meta.stdout : '';
+  const stderr = typeof meta.stderr === 'string' ? meta.stderr : '';
+  const exitCode = typeof meta.exit_code === 'number' ? meta.exit_code : null;
+  const timedOut = meta.timed_out === true;
+  const runtimeMissing = meta.runtime_missing === true;
+  const elapsedMs = typeof meta.elapsed_ms === 'number' ? meta.elapsed_ms : null;
+  const [copied, setCopied] = useState(false);
+
+  const ok = !runtimeMissing && !timedOut && exitCode === 0;
+  const statusLabel = runtimeMissing
+    ? 'Runtime not available'
+    : timedOut
+    ? 'Timed out'
+    : exitCode === 0
+    ? 'Success'
+    : `Exit ${exitCode}`;
+
+  const statusColor = ok
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    : 'border-destructive/30 bg-destructive/10 text-destructive';
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-relaxed">{msg.content}</p>
+      <div
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs ${statusColor}`}
+      >
+        {!ok && <AlertTriangle className="h-3 w-3" />}
+        <Code2 className="h-3 w-3" />
+        <span className="font-medium">{language.toUpperCase()}</span>
+        <span>·</span>
+        <span>{statusLabel}</span>
+        {elapsedMs != null && (
+          <>
+            <span>·</span>
+            <span>{elapsedMs} ms</span>
+          </>
+        )}
+      </div>
+      {code && (
+        <div className="relative max-w-2xl overflow-hidden rounded-lg border border-border bg-zinc-950 text-zinc-100 shadow-sm">
+          <button
+            type="button"
+            onClick={handleCopyCode}
+            className="absolute right-2 top-2 z-10 flex h-7 items-center gap-1 rounded-md bg-zinc-800/80 px-2 text-xs text-zinc-100 backdrop-blur-sm transition-colors hover:bg-zinc-700"
+            aria-label="Copy code"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3 text-emerald-400" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" /> Copy
+              </>
+            )}
+          </button>
+          <pre className="overflow-x-auto p-3.5 pr-20 text-xs leading-relaxed">
+            <code>{code}</code>
+          </pre>
+        </div>
+      )}
+      {(stdout || stderr) && (
+        <details className="max-w-2xl rounded-lg border border-border bg-muted/30">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+            <Terminal className="mr-1.5 inline-block h-3 w-3" />
+            Output{stdout && ` (${stdout.split('\n').length} lines)`}
+            {stderr && ' · has errors'}
+          </summary>
+          <div className="space-y-2 border-t border-border px-3 py-2">
+            {stdout && (
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-zinc-950/95 p-2.5 text-xs text-zinc-100">
+                <code>{stdout}</code>
+              </pre>
+            )}
+            {stderr && (
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-red-950/95 p-2.5 text-xs text-red-100">
+                <code>{stderr}</code>
+              </pre>
+            )}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -159,22 +402,20 @@ export default function ChatPage() {
 
   const handleSendMessage = async (content: string) => {
     if (!user || !content.trim()) return;
-    // Image-mode options are stashed on window by MessageInput when the
-    // user has the image toggle on. Default to text. We pull this here
-    // (rather than lifting state through props) so MessageInput stays a
-    // drop-in component for both modes.
-    const pendingOpts =
-      typeof window !== 'undefined'
-        ? (window as any).__pendingImageOpts ?? null
-        : null;
+    // Two side-channels from MessageInput: __pendingImageOpts (image
+    // gen) and __pendingFileOpts (PPT/Word/Code). Image mode takes
+    // priority because the existing UI contract for that path is
+    // well-established; file opts are the new path.
+    const w = typeof window !== 'undefined' ? (window as any) : null;
+    const pendingImage = w?.__pendingImageOpts ?? null;
+    const pendingFile = w?.__pendingFileOpts ?? null;
+    const messageType = pendingImage?.messageType ?? pendingFile?.messageType;
+    const metaData = pendingImage?.metaData ?? pendingFile?.metaData;
     setLoading(true);
     setIsTyping(true);
     setError(null);
     try {
-      await sendMessage(chatId, content, {
-        messageType: pendingOpts?.messageType,
-        metaData: pendingOpts?.metaData,
-      });
+      await sendMessage(chatId, content, { messageType, metaData });
       setLoading(false);
       await loadMessages();
       setIsTyping(false);
@@ -185,10 +426,11 @@ export default function ChatPage() {
       setLoading(false);
       setIsTyping(false);
     } finally {
-      // Consume the opts so a subsequent text send isn't accidentally
-      // treated as another image.
-      if (typeof window !== 'undefined') {
-        (window as any).__pendingImageOpts = null;
+      // Consume both side-channels so a subsequent text send isn't
+      // accidentally treated as another image or file generation.
+      if (w) {
+        w.__pendingImageOpts = null;
+        w.__pendingFileOpts = null;
       }
     }
   };
@@ -361,6 +603,44 @@ export default function ChatPage() {
                             </p>
                           </div>
                         )
+                      ) : msg.message_type === 'file' && msg.is_ai ? (
+                        // File-typed AI message: pick pptx vs docx
+                        // from meta_data.kind (not from message_type —
+                        // the backend reuses MessageType.FILE for both
+                        // to keep the enum stable).
+                        asMeta(msg.meta_data)?.kind === 'docx' ? (
+                          <DocxBubble msg={msg} />
+                        ) : (
+                          <PptxBubble msg={msg} />
+                        )
+                      ) : msg.message_type === 'code' ? (
+                        msg.is_ai ? (
+                          <CodeBubble msg={msg} />
+                        ) : (
+                          // User side: they asked the assistant to run
+                          // code. Show prompt + a small breadcrumb.
+                          <div className="space-y-1">
+                            <p className="whitespace-pre-wrap break-words leading-relaxed">
+                              {msg.content}
+                            </p>
+                            <p className="flex items-center gap-1 text-[11px] opacity-80">
+                              <Code2 className="h-3 w-3" />
+                              Running code…
+                            </p>
+                          </div>
+                        )
+                      ) : msg.message_type === 'file' && !msg.is_ai ? (
+                        // User side: they asked for a file. Match the
+                        // image-mode breadcrumb style for consistency.
+                        <div className="space-y-1">
+                          <p className="whitespace-pre-wrap break-words leading-relaxed">
+                            {msg.content}
+                          </p>
+                          <p className="flex items-center gap-1 text-[11px] opacity-80">
+                            <Presentation className="h-3 w-3" />
+                            Building file…
+                          </p>
+                        </div>
                       ) : (
                         <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
                       )}
