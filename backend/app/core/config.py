@@ -18,6 +18,36 @@ from pydantic import ConfigDict
 import os
 
 
+# pydantic 1.x's BaseSettings does NOT auto-read .env (only the v2
+# `pydantic_settings` does). Since this project pins pydantic 1.x and
+# pydantic-settings requires pydantic>=2.3 (see requirements.txt), we
+# explicitly load the .env file with python-dotenv BEFORE Settings() is
+# constructed so BACKEND_CORS_ORIGINS, ALLOW_VERCEL_PREVIEWS, etc.
+# actually take effect. python-dotenv is already pinned at
+# requirements.txt:29; `override=False` (the default) means real
+# process env wins over .env, which is the safe behaviour.
+try:
+    from dotenv import load_dotenv
+
+    # Look for .env next to the working directory, then walk up to the
+    # repo root, then fall back to whatever dotenv finds. Missing files
+    # are silently skipped (python-dotenv default).
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.path.dirname(_here), "..", ".env"),  # backend/.env
+        os.path.join(os.path.dirname(_here), "..", "..", ".env"),  # repo root
+    ]
+    for _path in _candidates:
+        if os.path.exists(_path):
+            load_dotenv(_path, override=False)
+            break
+except ImportError:
+    # python-dotenv not installed; nothing we can do. Real prod deploys
+    # are expected to set env vars via the platform anyway.
+    pass
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "NovaMind AI"
     VERSION: str = "0.1.0"
