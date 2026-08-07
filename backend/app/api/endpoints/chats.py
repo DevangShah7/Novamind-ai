@@ -542,11 +542,13 @@ async def _create_docx_message(
 
     meta_in = message_in.meta_data if isinstance(message_in.meta_data, dict) else {}
     style = (meta_in.get("style") or "report").lower()
+    theme = (meta_in.get("theme") or "modern").lower()
     model_name = message_in.model or "NovaMind-Chat"
 
     payload_bytes, filename, gen_meta = generate_docx_payload(
         prompt=message_in.content,
         style=style,
+        theme=theme,
         model_name=model_name,
     )
 

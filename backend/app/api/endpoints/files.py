@@ -62,7 +62,9 @@ DEFAULT_CODE_TIMEOUT_S = 8.0
 
 # ----- LLM helpers ----------------------------------------------------------
 
-async def _llm_outline(prompt: str, *, model_name: str = "NovaMind-Chat") -> str:
+async def _llm_outline(
+    prompt: str, *, model_name: str = "NovaMind-Chat", max_tokens: int = 2000
+) -> str:
     """Ask the configured LLM for raw text. Returns whatever the LLM
     emitted — callers are responsible for stripping markdown fences /
     parsing JSON.
@@ -90,7 +92,9 @@ async def _llm_outline(prompt: str, *, model_name: str = "NovaMind-Chat") -> str
                 is_ai=False,
             ),
         ]
-        resp = await llm.generate_response(messages=messages, temperature=0.4, max_tokens=2000)
+        resp = await llm.generate_response(
+            messages=messages, temperature=0.4, max_tokens=max_tokens
+        )
         return (resp.content or "").strip()
     except Exception as exc:  # noqa: BLE001 — we want to swallow any LLM error
         logger.warning("LLM call for file outline failed: %s", exc)
@@ -127,6 +131,7 @@ def _llm_outline_sync(prompt: str, *, model_name: str = "NovaMind-Chat") -> str:
             detail={"code": "unknown_model", "message": f"Unknown model: {model_name}"},
         )
     try:
+        # Generous max_tokens so a 5-section DOCX doesn't truncate mid-JSON.
         with httpx.Client(timeout=120.0) as client:
             r = client.post(
                 f"{settings.OLLAMA_BASE_URL}/v1/chat/completions",
@@ -134,7 +139,7 @@ def _llm_outline_sync(prompt: str, *, model_name: str = "NovaMind-Chat") -> str:
                     "model": backend,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.4,
-                    "max_tokens": 2000,
+                    "max_tokens": 4000,
                 },
             )
             r.raise_for_status()
@@ -204,15 +209,56 @@ def _safe_json_loads(raw: str) -> Optional[Any]:
 
 # ----- PPTX -----------------------------------------------------------------
 
-# Theme → (master_index, color_hint). python-pptx ships one master per
-# default theme; we layer a primary color onto title text for the
-# "academic" / "pitch-deck" variants to differentiate them visually.
+# Theme palette: accent color + matching dark + soft background + dark text.
+# `bg` is the fill we paint the title-bar / accent strip with on every
+# slide so the deck has a consistent brand colour even though the LLM
+# hasn't supplied any. `text` is the body-text colour; we always set
+# bullet text colour explicitly because python-pptx defaults to theme
+# black which clashes with our cover-slide layouts.
 PPT_THEMES = {
-    "modern": {"master": 0, "accent": "1F4E79"},
-    "minimal": {"master": 1, "accent": "404040"},
-    "academic": {"master": 2, "accent": "8B0000"},
-    "pitch-deck": {"master": 0, "accent": "C00000"},
+    "modern": {
+        "accent": "1F4E79",   # deep blue
+        "dark":   "0F2A45",   # cover background
+        "bg":     "EAF2FB",   # soft title-bar / strip
+        "text":   "1A1A1A",
+        "title_font": "Calibri Light",
+        "body_font": "Calibri",
+    },
+    "minimal": {
+        "accent": "404040",   # graphite
+        "dark":   "1A1A1A",
+        "bg":     "F4F4F4",
+        "text":   "222222",
+        "title_font": "Helvetica",
+        "body_font": "Helvetica",
+    },
+    "academic": {
+        "accent": "8B0000",   # oxblood
+        "dark":   "4A0010",
+        "bg":     "FBEFEF",
+        "text":   "1F1F1F",
+        "title_font": "Georgia",
+        "body_font": "Georgia",
+    },
+    "pitch-deck": {
+        "accent": "C00000",   # signal red
+        "dark":   "5A0000",
+        "bg":     "FFF2F2",
+        "text":   "141414",
+        "title_font": "Calibri",
+        "body_font": "Calibri",
+    },
 }
+
+
+def _theme_palette(theme_key: str) -> Dict[str, str]:
+    """Returns the palette dict for `theme_key`, falling back to
+    `modern` if the requested theme isn't registered. Wrapping the
+    default in a dict gives callers a safe key surface even when the
+    caller passed garbage."""
+    if theme_key in PPT_THEMES:
+        return PPT_THEMES[theme_key]
+    return PPT_THEMES["modern"]
 
 
 # Section labels used when we pad missing slides. Generic enough to fit
@@ -231,6 +277,192 @@ _PPTX_PAD_TITLES = [
     "Appendix",
     "Q&A",
 ]
+
+
+# Per-slide image rendering — pull a Pollinations image for each slide
+# in parallel so the deck has real visuals, not walls of text. Image
+# rendering is the slow part (~3-30 s each for cold-cache, sub-second
+# for warm cache) so we cap the per-call timeout at 25 s. A failure on
+# any one slide is silent — the slide still renders with text only,
+# and the user gets a finished deck.
+_PPTX_IMAGE_TIMEOUT_S = 25.0
+
+
+def _fetch_pollinations_image(
+    prompt: str, *, width: int = 768, height: int = 512, seed: int = 0,
+    max_retries: int = 2
+) -> Optional[bytes]:
+    """Fetch one image from Pollinations and return raw bytes, or None
+    on any failure. Retries on 429 (rate-limit) with exponential
+    backoff — Pollinations' free tier aggressively throttles serial
+    requests and ~10 s of cooldown usually clears the window."""
+    if not prompt or not prompt.strip():
+        return None
+    import httpx
+    import time as _t
+    from urllib.parse import quote as _quote
+    url = (
+        f"https://image.pollinations.ai/prompt/{_quote(prompt, safe='')}"
+        f"?width={width}&height={height}&model=flux&nologo=true&enhance=false&seed={seed}"
+    )
+    backoff_s = 3.0
+    for attempt in range(max_retries + 1):
+        try:
+            r = httpx.get(url, timeout=_PPTX_IMAGE_TIMEOUT_S, follow_redirects=True)
+            if r.status_code == 200 and r.content and len(r.content) > 1000:
+                return r.content
+            if r.status_code == 429 and attempt < max_retries:
+                logger.debug("Pollinations 429 for %r, backing off %.1fs", prompt[:40], backoff_s)
+                _t.sleep(backoff_s)
+                backoff_s *= 2
+                continue
+            logger.debug(
+                "Pollinations fetch %r returned status=%d size=%d",
+                prompt[:40], r.status_code, len(r.content or b""),
+            )
+            return None
+        except Exception as exc:  # noqa: BLE001 — image fetch is best-effort
+            logger.debug("Pollinations fetch failed for %r: %s", prompt[:40], exc)
+            return None
+    return None
+
+
+def _fetch_slide_images_parallel(slides: list, *, accent_hex: str = "1F4E79") -> list:
+    """Fetch one image per slide. Tries Pollinations first; on any
+    failure (rate-limit, timeout, network down) renders a local
+    gradient image so the deck is never image-less.
+
+    Pollinations' free tier is aggressively rate-limited — on this
+    network we see ~1 successful call per minute from a single IP.
+    Rather than block the user on retries, we degrade to a Pillow-
+    rendered themed gradient seeded by the slide text. Each slide gets
+    a distinct palette so the deck still looks premium, and the cover
+    slide gets a real Pollinations render when the network cooperates.
+
+    Returns a list aligned with `slides`; entries are JPEG bytes.
+    """
+    import time as _time
+
+    prompts = []
+    for idx, s in enumerate(slides):
+        ip = (s.get("image_prompt") or "").strip()
+        if not ip and isinstance(s.get("bullets"), list) and s.get("bullets"):
+            base = (s.get("title") or "").strip()
+            if base:
+                ip = f"{base}, {s['bullets'][0]}"
+            else:
+                ip = f"slide {idx + 1}: {s.get('bullets', [''])[0]}"
+        if not ip:
+            ip = f"slide {idx + 1} of {len(slides)}"
+        prompts.append(ip)
+
+    seeds = [abs(hash(p)) % 999999 for p in prompts]
+    results = [None] * len(slides)
+    cover_order = [0] + [i for i in range(1, len(prompts))]
+    for step, idx in enumerate(cover_order):
+        prompt = prompts[idx]
+        img = _fetch_pollinations_image(
+            prompt, width=768, height=512, seed=seeds[idx]
+        )
+        if img is None:
+            # Pollinations failed — render a local themed gradient so
+            # the slide still has an image. Seed with the prompt so
+            # each slide gets a distinct look.
+            img = _local_gradient_image(
+                prompt, accent_hex=accent_hex, width=768, height=512,
+            )
+        results[idx] = img
+        if step < len(prompts) - 1:
+            _time.sleep(1.0)
+    return results
+
+
+# Pollinations' free tier is aggressively rate-limited — when it
+# fails we fall back to a locally-rendered gradient image seeded by
+# the slide text so the deck still has a unique, themed visual per
+# slide. Pillow ships as a python-pptx transitive dependency so this
+# adds zero install cost. Cache keyed by (text, accent, dims) so
+# repeat decks are instant.
+_PPTX_GRADIENT_CACHE: Dict[str, bytes] = {}
+
+
+def _local_gradient_image(seed_text: str, *, accent_hex: str,
+                          width: int = 768, height: int = 512) -> bytes:
+    """Render a deterministic, themed gradient JPEG using Pillow."""
+    cache_key = f"{seed_text}|{accent_hex}|{width}x{height}"
+    if cache_key in _PPTX_GRADIENT_CACHE:
+        return _PPTX_GRADIENT_CACHE[cache_key]
+
+    accent = _hex_to_rgb(accent_hex)
+    dark = _darken(accent, 0.55)
+    light = _lighten(accent, 0.45)
+
+    try:
+        from PIL import Image, ImageDraw
+        from io import BytesIO as _BIO
+        img = Image.new("RGB", (width, height), dark)
+        draw = ImageDraw.Draw(img)
+        # Diagonal gradient: dark -> accent -> light.
+        steps = 48
+        for i in range(steps):
+            t = i / (steps - 1)
+            c = _lerp(dark, accent, t) if t < 0.5 else _lerp(accent, light, (t - 0.5) * 2)
+            y0 = int(t * height)
+            y1 = int((i + 1) / steps * height) + 1
+            draw.rectangle([0, y0, width, y1], fill=c)
+
+        # Sparse "particles" so each slide is visually distinct.
+        import hashlib
+        digest = hashlib.sha256(seed_text.encode("utf-8")).digest()
+        rng_offset = digest[0] | (digest[1] << 8)
+        for i in range(40):
+            x = ((digest[i % 32] * (i + 1)) + rng_offset) % width
+            y = ((digest[(i + 7) % 32] * (i + 3)) + rng_offset) % height
+            r = 2 + (digest[(i + 13) % 32] % 5)
+            draw.ellipse([x - r, y - r, x + r, y + r], fill=(255, 255, 255))
+
+        buf = _BIO()
+        img.save(buf, format="JPEG", quality=85)
+        data = buf.getvalue()
+    except ImportError:
+        # Pillow missing — fall back to a 1×1 PNG of the accent colour.
+        from struct import pack
+        r, g, b = accent
+        sig = b"\x89PNG\r\n\x1a\n"
+        def _chunk(t, d):
+            return pack(">I", len(d)) + t + d + pack(">I", 0)
+        ihdr = _chunk(b"IHDR", pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        raw = b"\x00" + bytes((r, g, b))
+        idat = _chunk(b"IDAT", raw)
+        iend = _chunk(b"IEND", b"")
+        data = sig + ihdr + idat + iend
+
+    _PPTX_GRADIENT_CACHE[cache_key] = data
+    return data
+
+
+def _hex_to_rgb(hex_str: str) -> tuple:
+    try:
+        h = hex_str.lstrip("#")
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except (ValueError, IndexError):
+        return (31, 78, 121)
+
+
+def _lerp(a: tuple, b: tuple, t: float) -> tuple:
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
+
+
+def _darken(c: tuple, factor: float) -> tuple:
+    return (int(c[0] * factor), int(c[1] * factor), int(c[2] * factor))
+
+
+def _lighten(c: tuple, factor: float) -> tuple:
+    return tuple(min(255, int(c[i] + (255 - c[i]) * factor)) for i in range(3))
 
 
 def _clean_slide_title(title: str) -> str:
@@ -323,26 +555,54 @@ async def generate_pptx_payload(
     """Produce a real .pptx file from a prompt.
 
     Pipeline:
-      1. Ask the LLM for JSON: {"slides": [{"title", "bullets", "notes"}, ...]}
-      2. Build a python-pptx Presentation, pick a theme, fill each slide
-      3. Return the binary + filename + meta dict
+      1. Ask the LLM for a structured outline. Each slide gets a
+         title, 3-5 bullets, optional speaker notes, AND an
+         ``image_prompt`` describing what should appear in the slide's
+         hero image.
+      2. Fetch one Pollinations image per slide in parallel (best-effort;
+         a slide with no image still renders cleanly).
+      3. Build a python-pptx Presentation with three layout types:
+           - Cover slide (slide 0): full-bleed hero image with title
+             overlay + accent strip.
+           - Content slide (default): two-column layout — bullets on
+             the left, image on the right, accent title bar on top.
+           - Closing slide (last): same as content but with a
+             "Thank you" / "Questions?" style footer overlay.
+      4. Return the binary + filename + meta dict.
 
-    Falls back to a single "title + body" slide if the LLM output is
+    Falls back to a single text-only slide if the LLM output is
     malformed, so a transient LLM hiccup doesn't blow up the chat.
     """
     from pptx import Presentation
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches, Pt, Emu
     from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    from io import BytesIO as _BytesIO
 
     slide_count = max(1, min(int(slide_count or 6), MAX_PPTX_SLIDES))
     theme_key = theme if theme in PPT_THEMES else "modern"
-    accent_hex = PPT_THEMES[theme_key]["accent"]
+    palette = _theme_palette(theme_key)
 
-    # Step 1: get the outline. The local model (llama3.2:3b) doesn't reliably
-    # emit a `{"slides": [...]}` array of the right length, so we ask for
-    # numbered slides explicitly and explicitly constrain the shape. The
-    # fallback in `_fill_slides` below pads the missing slots if the model
-    # still returns too few.
+    def _rgb(hex_str: str) -> RGBColor:
+        try:
+            return RGBColor.from_string(hex_str)
+        except (ValueError, AttributeError):
+            return RGBColor(0, 0, 0)
+
+    accent_rgb = _rgb(palette["accent"])
+    dark_rgb = _rgb(palette["dark"])
+    bg_rgb = _rgb(palette["bg"])
+    text_rgb = _rgb(palette["text"])
+    accent_hex = palette["accent"]
+    title_font = palette["title_font"]
+    body_font = palette["body_font"]
+
+    # Step 1: ask the LLM for the outline + image prompts. The image
+    # prompt is short and concrete ("a clean photograph of a quantum
+    # computer chip") so Pollinations gets something it can render in
+    # ~5 s. We deliberately don't ask for art direction in the JSON —
+    # style is controlled by the theme, not the prompt.
     instruction = (
         f"You are drafting a {slide_count}-slide presentation on this topic:\n\n"
         f"TOPIC: {prompt}\n\n"
@@ -350,115 +610,288 @@ async def generate_pptx_payload(
         '"slides" array. Each entry must have:\n'
         '  - "title": 4-8 word slide title (NOT the topic again, NOT "Slide N")\n'
         '  - "bullets": array of 3-5 short bullet points about THAT slide\n'
-        '  - "notes": one short sentence for the speaker (optional, can be "")\n\n'
+        '  - "notes": one short sentence for the speaker (optional, can be "")\n'
+        '  - "image_prompt": a 6-12 word phrase describing one visual '
+        'for THIS slide (e.g. "photograph of a quantum computer chip on a '
+        'dark blue background", "flat illustration of entangled particles").\n\n'
         f"Write exactly {slide_count} entries — one per slide. No prose, no "
         "markdown fences, no commentary. Output the JSON object only."
     )
 
-    raw = await _llm_outline(instruction, model_name=model_name)
+    raw = await _llm_outline(
+        instruction, model_name=model_name,
+        max_tokens=min(4000, 1200 + slide_count * 400),
+    )
     parsed = _safe_json_loads(raw) or {}
-    # `_safe_json_loads` returns a dict for `{...}` payloads and a list
-    # for `[...]` payloads (the LLM sometimes skips the wrapper).
-    # Normalize both to a list of slide dicts.
     slides = _extract_slides(parsed)
 
-    # If we got fewer than half of what was requested, retry once with a
-    # stricter prompt. The retry often pushes small models past the
-    # "I'm done" stopping bias.
     if len(slides) < max(1, slide_count // 2):
         retry_instruction = (
             f"Output ONLY a JSON object with a 'slides' array of EXACTLY "
             f"{slide_count} entries. Topic: {prompt}. "
-            'Each entry: {"title": str, "bullets": [str, str, str], "notes": str}. '
+            'Each entry: {"title": str, "bullets": [str, str, str], '
+            '"notes": str, "image_prompt": str}. '
             f"You must include {slide_count} entries — no fewer. No prose."
         )
         try:
-            retry_raw = await _llm_outline(retry_instruction, model_name=model_name)
+            retry_raw = await _llm_outline(
+                retry_instruction, model_name=model_name,
+                max_tokens=min(4000, 1200 + slide_count * 400),
+            )
             retry_parsed = _safe_json_loads(retry_raw) or {}
             retry_slides = _extract_slides(retry_parsed)
             if len(retry_slides) > len(slides):
                 slides = retry_slides
         except HTTPException:
-            # Retry failure is non-fatal; we'll fall through to padding.
             pass
 
-    # Always pad to the requested count. Missing slides get a deterministic
-    # "Section N of M" title + bullets derived from the prompt so the deck
-    # is still useful instead of silently truncated.
     slides = _fill_slides(slides, slide_count, prompt)
 
-    # Step 2: build the .pptx.
+    # Step 2: fetch images for every slide in parallel. Failures are
+    # silent — we end up with `None` for that slide and the text-only
+    # layout renders cleanly without one.
+    image_bytes_list = _fetch_slide_images_parallel(slides, accent_hex=accent_hex)
+
+    # Step 3: build the .pptx.
     prs = Presentation()
-    title_layout = prs.slide_layouts[0]   # Title Slide
-    content_layout = prs.slide_layouts[1]  # Title and Content
-    section_layout = prs.slide_layouts[2]  # Section Header
+    # 16:9 widescreen — most modern displays + projectors render this
+    # without black bars. The default python-pptx presentation is 4:3.
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
 
-    try:
-        accent_rgb = RGBColor.from_string(accent_hex)
-    except (ValueError, AttributeError):
-        accent_rgb = RGBColor(0x1F, 0x4E, 0x79)
+    # SLIDE WIDTH constants in EMU so we can size shapes relative to
+    # the slide instead of guessing Inches values.
+    SW = prs.slide_width
+    SH = prs.slide_height
+    MARGIN = Inches(0.55)
 
-    for idx, slide_data in enumerate(slides[:slide_count]):
-        layout = title_layout if idx == 0 else content_layout
-        slide = prs.slides.add_slide(layout)
-        title_text = (slide_data.get("title") or f"Slide {idx + 1}").strip()
-        try:
-            slide.shapes.title.text = title_text
-            for r in slide.shapes.title.text_frame.paragraphs[0].runs:
-                r.font.color.rgb = accent_rgb
-        except (AttributeError, KeyError):
-            # Layout might not have a title placeholder; fall back.
-            pass
-
-        # Body / bullets: slide 1 is title-only by layout choice, skip it.
-        bullets = slide_data.get("bullets") or []
-        if idx == 0:
-            # Add a subtitle-style body with a short summary.
-            body_ph = next(
-                (ph for ph in slide.placeholders if ph.placeholder_format.idx == 1),
-                None,
-            )
-            if body_ph is not None:
-                body_ph.text = bullets[0] if bullets else prompt[:200]
-            continue
-
-        body_ph = next(
-            (ph for ph in slide.placeholders if ph.placeholder_format.idx == 1),
-            None,
+    def _paint_background(slide, color: RGBColor) -> None:
+        """Fill the slide background with a solid colour."""
+        bg_shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, 0, 0, SW, SH
         )
-        if body_ph is None:
-            # No content placeholder on this layout — append a textbox.
-            from pptx.util import Inches as _In
-            tx = slide.shapes.add_textbox(_In(1), _In(2), _In(8), _In(4))
-            tf = tx.text_frame
-            tf.word_wrap = True
-            for b in bullets[:8]:
-                p = tf.add_paragraph()
-                p.text = str(b)
-                p.level = 0
-        else:
-            tf = body_ph.text_frame
-            tf.word_wrap = True
-            tf.text = str(bullets[0]) if bullets else ""
-            for b in bullets[1:8]:
-                p = tf.add_paragraph()
-                p.text = str(b)
-                p.level = 0
+        bg_shape.fill.solid()
+        bg_shape.fill.fore_color.rgb = color
+        bg_shape.line.fill.background()
+        # Send to back so everything else paints on top.
+        spTree = bg_shape._element.getparent()
+        spTree.remove(bg_shape._element)
+        spTree.insert(2, bg_shape._element)
 
-        # Speaker notes — kept short so they fit the placeholder.
+    def _add_title_bar(slide, title_text: str) -> None:
+        """Accent strip + slide title across the top of the slide."""
+        bar = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, 0, 0, SW, Inches(0.18)
+        )
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = accent_rgb
+        bar.line.fill.background()
+        tx = slide.shapes.add_textbox(
+            MARGIN, Inches(0.35), SW - 2 * MARGIN, Inches(1.1)
+        )
+        tf = tx.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.LEFT
+        run = p.add_run()
+        run.text = title_text
+        run.font.name = title_font
+        run.font.size = Pt(34)
+        run.font.bold = True
+        run.font.color.rgb = accent_rgb
+
+    def _add_bullets(slide, bullets: list, *, left: int, top: int,
+                     width: int, height: int, font_size: int = 18) -> None:
+        """Bullet list in a fixed rectangle."""
+        tx = slide.shapes.add_textbox(left, top, width, height)
+        tf = tx.text_frame
+        tf.word_wrap = True
+        for i, b in enumerate(bullets[:6]):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            run = p.add_run()
+            run.text = f"•  {str(b)}"
+            run.font.name = body_font
+            run.font.size = Pt(font_size)
+            run.font.color.rgb = text_rgb
+            p.space_after = Pt(8)
+            p.line_spacing = 1.15
+
+    def _add_image(slide, image_bytes: bytes, *,
+                   left: int, top: int, width: int, height: int) -> None:
+        """Place a JPEG/PNG into the slide at the given rect. python-pptx
+        sniffs the bytes to pick the right image format."""
+        from pptx.util import Emu as _Emu
+        # `add_picture` needs a file-like, so wrap the bytes.
+        bio = _BytesIO(image_bytes)
+        slide.shapes.add_picture(bio, left, top, width=width, height=height)
+
+    def _add_image_or_placeholder(slide, image_bytes: Optional[bytes], *,
+                                  left: int, top: int, width: int,
+                                  height: int) -> None:
+        """Add the image, or — if Pollinations failed — a soft-fill
+        rectangle with the slide index so the layout still has a
+        visual anchor. Better than a broken-image icon in PowerPoint."""
+        if image_bytes:
+            _add_image(slide, image_bytes, left=left, top=top,
+                       width=width, height=height)
+            return
+        # Placeholder rectangle — same dimensions, tinted with bg.
+        ph = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, left, top, width, height
+        )
+        ph.fill.solid()
+        ph.fill.fore_color.rgb = bg_rgb
+        ph.line.color.rgb = accent_rgb
+        ph.line.width = Pt(0.75)
+
+    # --- Cover slide (idx == 0) ---------------------------------------
+    cover = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+    _paint_background(cover, dark_rgb)
+    cover_image = image_bytes_list[0] if image_bytes_list else None
+    if cover_image:
+        _add_image(cover, cover_image, left=0, top=0,
+                   width=SW, height=SH)
+        # Dark overlay so the title text reads on top of any image.
+        overlay = cover.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, 0, Inches(2.6), SW, Inches(2.8)
+        )
+        overlay.fill.solid()
+        overlay.fill.fore_color.rgb = dark_rgb
+        overlay.fill.transparency = 0.35  # ~35% opaque dark wash
+        overlay.line.fill.background()
+
+    # Title + subtitle on the cover.
+    title_box = cover.shapes.add_textbox(
+        MARGIN, Inches(2.9), SW - 2 * MARGIN, Inches(2.0)
+    )
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    run = p.add_run()
+    cover_title = (slides[0].get("title") or prompt[:120]).strip()
+    run.text = cover_title
+    run.font.name = title_font
+    run.font.size = Pt(44)
+    run.font.bold = True
+    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+    subtitle_text = (slides[0].get("bullets") or [prompt[:200]])[0]
+    sub_box = cover.shapes.add_textbox(
+        MARGIN, Inches(4.5), SW - 2 * MARGIN, Inches(1.4)
+    )
+    stf = sub_box.text_frame
+    stf.word_wrap = True
+    sp = stf.paragraphs[0]
+    srun = sp.add_run()
+    srun.text = str(subtitle_text)[:280]
+    srun.font.name = body_font
+    srun.font.size = Pt(20)
+    srun.font.color.rgb = RGBColor(0xE6, 0xE6, 0xE6)
+
+    # Accent strip at the bottom of the cover.
+    strip = cover.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, 0, SH - Inches(0.18), SW, Inches(0.18)
+    )
+    strip.fill.solid()
+    strip.fill.fore_color.rgb = accent_rgb
+    strip.line.fill.background()
+
+    # --- Content slides (idx 1 .. slide_count-2) ----------------------
+    last_content_idx = slide_count - 1
+    for idx in range(1, last_content_idx):
+        slide_data = slides[idx]
+        slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+        _paint_background(slide, RGBColor(0xFF, 0xFF, 0xFF))
+        _add_title_bar(slide, (slide_data.get("title") or f"Slide {idx + 1}").strip())
+
+        bullets = slide_data.get("bullets") or _pad_bullets(prompt, idx, slide_count)
+        # Left column: bullets.
+        col_top = Inches(1.7)
+        col_h = SH - col_top - Inches(0.4)
+        _add_bullets(
+            slide, bullets,
+            left=MARGIN, top=col_top,
+            width=Inches(6.8), height=col_h,
+            font_size=18,
+        )
+        # Right column: image.
+        img_left = Inches(7.7)
+        img_top = Inches(1.7)
+        img_w = SW - img_left - MARGIN
+        img_h = Inches(4.6)
+        _add_image_or_placeholder(
+            slide, image_bytes_list[idx] if idx < len(image_bytes_list) else None,
+            left=img_left, top=img_top,
+            width=img_w, height=img_h,
+        )
+        # Speaker notes.
         notes_tf = slide.notes_slide.notes_text_frame
         notes_tf.text = (slide_data.get("notes") or "").strip()[:500]
 
-    # Step 3: serialize to bytes.
+    # --- Closing slide (last) -----------------------------------------
+    if slide_count >= 2:
+        slide_data = slides[last_content_idx]
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _paint_background(slide, dark_rgb)
+        # Big "Thank You" or last title.
+        title_box = slide.shapes.add_textbox(
+            MARGIN, Inches(2.6), SW - 2 * MARGIN, Inches(1.8)
+        )
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        run = p.add_run()
+        closing_title = (slide_data.get("title") or "Thank you").strip()
+        run.text = closing_title
+        run.font.name = title_font
+        run.font.size = Pt(48)
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+        # Subtitle = first bullet or prompt tail.
+        subtitle_text = (slide_data.get("bullets") or [f"Questions about {prompt[:60]}?"])[0]
+        sub_box = slide.shapes.add_textbox(
+            MARGIN, Inches(4.6), SW - 2 * MARGIN, Inches(1.2)
+        )
+        stf = sub_box.text_frame
+        stf.word_wrap = True
+        sp = stf.paragraphs[0]
+        sp.alignment = PP_ALIGN.CENTER
+        srun = sp.add_run()
+        srun.text = str(subtitle_text)[:240]
+        srun.font.name = body_font
+        srun.font.size = Pt(22)
+        srun.font.color.rgb = RGBColor(0xE6, 0xE6, 0xE6)
+
+        # Accent strip at bottom.
+        strip = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, 0, SH - Inches(0.18), SW, Inches(0.18)
+        )
+        strip.fill.solid()
+        strip.fill.fore_color.rgb = accent_rgb
+        strip.line.fill.background()
+
+        # Closing notes
+        slide.notes_slide.notes_text_frame.text = (
+            (slide_data.get("notes") or "")[:500]
+        )
+
+    # If slide_count == 1 we still want a real cover; loop above skipped.
+    # Already handled by the cover block above.
+
+    # Step 4: serialize.
     buf = io.BytesIO()
     prs.save(buf)
     payload = buf.getvalue()
     if not payload:
         raise HTTPException(
             status_code=502,
-            detail={"code": "pptx_build_failed", "message": "Could not assemble the .pptx file."},
+            detail={"code": "pptx_build_failed",
+                    "message": "Could not assemble the .pptx file."},
         )
 
+    images_resolved = sum(1 for b in image_bytes_list if b)
     ts = int(time.time())
     filename = f"novamind-slides-{ts}.pptx"
     meta = {
@@ -471,6 +904,8 @@ async def generate_pptx_payload(
         "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "filename": filename,
         "prompt": prompt[:500],
+        "images_attached": images_resolved,
+        "images_requested": len(slides),
     }
     return payload, filename, meta
 
@@ -484,6 +919,7 @@ def generate_docx_payload(
     prompt: str,
     *,
     style: str = "report",
+    theme: str = "modern",
     model_name: str = "NovaMind-Chat",
 ) -> Tuple[bytes, str, Dict[str, Any]]:
     """Produce a real .docx file. Mirrors `generate_pptx_payload` but
@@ -499,9 +935,25 @@ def generate_docx_payload(
     avoid nesting asyncio.run inside an already-running loop. The
     standalone `/files/generate` endpoint also uses this version."""
     from docx import Document
-    from docx.shared import Pt
+    from docx.shared import Pt, RGBColor as DocxRGB, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     style = style if style in DOCX_STYLES else "report"
+    palette = _theme_palette(theme)
+    body_font = palette["body_font"]
+    title_font = palette["title_font"]
+
+    def _docx_rgb(hex_str: str) -> DocxRGB:
+        try:
+            return DocxRGB.from_string(hex_str)
+        except (ValueError, AttributeError):
+            return DocxRGB(0, 0, 0)
+
+    accent_rgb = _docx_rgb(palette["accent"])
+    text_rgb = _docx_rgb(palette["text"])
+    dark_rgb = _docx_rgb(palette["dark"])
 
     instruction = (
         f"You are drafting a {style}-style document on this topic:\n\n"
@@ -510,6 +962,8 @@ def generate_docx_payload(
         '{"title":"...",'
         '"sections":[{"heading":"...","paragraphs":["...","..."]},...]} '
         "Include 4-5 sections and 2-3 short paragraphs per section. "
+        "Each paragraph should be 2-4 sentences with concrete details, "
+        "not just one-liners. "
         "No markdown fences, no commentary, JSON only."
     )
 
@@ -563,34 +1017,98 @@ def generate_docx_payload(
         sections = [{"heading": "Overview", "paragraphs": [prompt[:400]]}]
 
     doc = Document()
-    # Title.
-    h = doc.add_heading(title, level=0)
-    for run in h.runs:
-        run.font.size = Pt(20)
+    # Page margins — narrower than default so the body has more line length.
+    for section in doc.sections:
+        section.top_margin = Cm(2.2)
+        section.bottom_margin = Cm(2.2)
+        section.left_margin = Cm(2.4)
+        section.right_margin = Cm(2.4)
+
+    # Style the built-in Normal style so every paragraph inherits the
+    # theme fonts/colours/spacing. python-docx's default is Calibri 11
+    # black on white — fine for letters, bland for a branded report.
+    normal = doc.styles["Normal"]
+    normal.font.name = body_font
+    normal.font.size = Pt(11)
+    normal.font.color.rgb = text_rgb
+    normal.paragraph_format.space_after = Pt(6)
+    normal.paragraph_format.line_spacing = 1.25
+
+    # Title — large accent-coloured heading with a thin accent rule
+    # beneath. The bottom-border trick scales with page width and
+    # avoids a separate empty paragraph just for the rule.
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    title_run = title_p.add_run(title)
+    title_run.font.name = title_font
+    title_run.font.size = Pt(28)
+    title_run.font.bold = True
+    title_run.font.color.rgb = accent_rgb
+    title_p.paragraph_format.space_after = Pt(4)
+    pPr = title_p._p.get_or_add_pPr()
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    bottom.set(qn("w:sz"), "12")
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), palette["accent"])
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+    para_count = 1
 
     # Style-specific scaffold.
     if style == "memo":
         meta_p = doc.add_paragraph()
-        meta_p.add_run("TO: ").bold = True
-        meta_p.add_run("Recipient\n")
-        meta_p.add_run("FROM: ").bold = True
-        meta_p.add_run("NovaMind AI\n")
-        meta_p.add_run("DATE: ").bold = True
-        meta_p.add_run(time.strftime("%Y-%m-%d"))
-    elif style == "letter":
-        meta_p = doc.add_paragraph()
-        meta_p.add_run(time.strftime("%Y-%m-%d") + "\n\nDear Recipient,\n").bold = False
+        meta_run = meta_p.add_run("MEMO")
+        meta_run.bold = True
+        meta_run.font.name = title_font
+        meta_run.font.size = Pt(13)
+        meta_run.font.color.rgb = dark_rgb
+        meta_p.paragraph_format.space_after = Pt(2)
 
-    para_count = 1  # title
-    for sec in sections[:5]:
+        meta_p = doc.add_paragraph()
+        for label, value in [
+            ("TO", "Recipient"),
+            ("FROM", "NovaMind AI"),
+            ("DATE", time.strftime("%Y-%m-%d")),
+        ]:
+            r = meta_p.add_run(f"{label}: ")
+            r.bold = True
+            r.font.name = body_font
+            r.font.size = Pt(11)
+            r2 = meta_p.add_run(f"{value}\n")
+            r2.font.name = body_font
+            r2.font.size = Pt(11)
+        para_count += 2
+    elif style == "letter":
+        date_p = doc.add_paragraph()
+        date_p.add_run(time.strftime("%Y-%m-%d")).font.size = Pt(11)
+        doc.add_paragraph()
+        greeting = doc.add_paragraph()
+        greeting.add_run("Dear Recipient,").font.size = Pt(11)
+        para_count += 3
+
+    for sec in sections[:6]:
         heading = (sec.get("heading") or "Section").strip()
-        doc.add_heading(heading, level=1)
+        h_p = doc.add_paragraph()
+        h_run = h_p.add_run(heading)
+        h_run.font.name = title_font
+        h_run.font.size = Pt(16)
+        h_run.font.bold = True
+        h_run.font.color.rgb = accent_rgb
+        h_p.paragraph_format.space_before = Pt(10)
+        h_p.paragraph_format.space_after = Pt(4)
         para_count += 1
         for para_text in (sec.get("paragraphs") or [])[:4]:
             text = str(para_text).strip()
             if not text:
                 continue
-            doc.add_paragraph(text)
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            run = p.add_run(text)
+            run.font.name = body_font
+            run.font.size = Pt(11)
+            run.font.color.rgb = text_rgb
             para_count += 1
             if para_count >= MAX_DOCX_PARAGRAPHS:
                 break
@@ -598,7 +1116,11 @@ def generate_docx_payload(
             break
 
     if style == "letter":
-        doc.add_paragraph("\nSincerely,\nNovaMind AI")
+        doc.add_paragraph()
+        closing = doc.add_paragraph()
+        closing.add_run("Sincerely,\n").font.size = Pt(11)
+        closing.add_run("NovaMind AI").font.size = Pt(11)
+        para_count += 2
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -761,6 +1283,7 @@ async def generate_file(req: FileGenRequest):
         payload, filename, meta = generate_docx_payload(
             prompt=req.prompt,
             style=req.style or "report",
+            theme=req.theme or "modern",
             model_name=req.model or "NovaMind-Chat",
         )
         return FileGenResponse(
