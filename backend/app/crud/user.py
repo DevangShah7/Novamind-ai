@@ -25,6 +25,10 @@ def create_user(db: Session, user: UserCreate):
         username=user.username,
         full_name=user.full_name,
         hashed_password=hashed_password,
+        # Email verification is disabled — no SMTP is configured, so a
+        # verification-gated login would lock every new signup out
+        # permanently. Users can sign in immediately after registering.
+        is_verified=True,
         preferences=json.dumps({"theme": "light", "notifications": True})  # Default preferences
     )
     db.add(db_user)

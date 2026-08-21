@@ -15,18 +15,6 @@ export interface Token {
   token_type: string;
 }
 
-/**
- * Result of a successful `register()` call. The backend now mints a
- * verification email instead of an immediate access token, so the
- * client UI shows a "check your inbox" screen and waits for the user
- * to click the link. The discriminator is the call shape, not the
- * type — a future "auto-verify in dev" path could return a Token
- * instead; for now this is the only branch.
- */
-export type RegisterResult =
-  | { requiresVerification: true; email: string }
-  | { access_token: string; token_type: string };
-
 export interface Chat {
   id: number;
   title: string;

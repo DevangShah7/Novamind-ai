@@ -161,13 +161,13 @@ def _verify_google_id_token(token: str) -> dict:
                 detail=f"Google authentication failed: {fb_exc}",
             )
 
-@router.post("/register", response_model=MessageResponse, status_code=202)
+@router.post("/register", response_model=MessageResponse, status_code=201)
 def register(user_in: UserCreate, db: Session = Depends(deps.get_db)):
     """Create a new user account.
 
-    Returns 202 (not 201) because the user isn't fully "ready" until
-    they verify their email. The response is a generic message; the
-    verification email is sent to the address they registered with.
+    Email verification is disabled (no SMTP configured) — accounts are
+    ready to sign in immediately after registering, same as create_user's
+    is_verified=True default.
     """
     user = get_user_by_email(db, email=user_in.email)
     if user:
@@ -178,22 +178,9 @@ def register(user_in: UserCreate, db: Session = Depends(deps.get_db)):
             status_code=400,
             detail="The user with this email already exists in the system.",
         )
-    user = create_user(db, user_in)
+    create_user(db, user_in)
 
-    # Mint a 24h verification token and email the user. If mailer is
-    # in dev-stub mode, the URL ends up in backend/logs/dev-mail.log.
-    token = secrets.token_urlsafe(32)
-    user.email_verification_token = token
-    user.email_verification_expires = datetime.now(timezone.utc) + timedelta(
-        hours=EMAIL_VERIFICATION_TTL_HOURS
-    )
-    db.commit()
-
-    _send_verification_email(user.email, token)
-
-    return MessageResponse(
-        message="Account created. Please check your email to verify your account."
-    )
+    return MessageResponse(message="Account created. You can now sign in.")
 
 
 def _frontend_base_url() -> str:
@@ -341,14 +328,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Gate on email verification, but allow admins to skip so they
-    # can still recover accounts in dev.
-    if not user.is_verified and not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified. Please check your inbox for the verification link.",
         )
 
     # Success: clear failure state. token_version is intentionally NOT

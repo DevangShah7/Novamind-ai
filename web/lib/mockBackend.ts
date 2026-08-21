@@ -130,7 +130,7 @@ export const mockRegister = async (email: string, password: string): Promise<Tok
     bio: null,
     avatar_url: null,
     is_active: true,
-    is_verified: false,
+    is_verified: true,
     google_id: null,
     is_admin: false,
     password,

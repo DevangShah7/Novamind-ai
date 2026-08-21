@@ -15,23 +15,19 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  // Transient banner shown when the user lands here from
-  // /verify-email?token=... (registered=1) or /reset-password success.
-  // Auto-dismisses after 6 s.
+  // Transient banner shown when the user lands here from a successful
+  // /reset-password. Auto-dismisses after 6 s.
   const [banner, setBanner] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     if (!router.isReady) return;
-    if (router.query.registered === '1') {
-      setBanner('Email verified — you can sign in now.');
+    if (router.query.reset === '1') {
+      setBanner('Password updated — sign in with your new password.');
       // Clean the URL so a refresh doesn't re-show the banner.
       router.replace('/login', undefined, { shallow: true });
-    } else if (router.query.reset === '1') {
-      setBanner('Password updated — sign in with your new password.');
-      router.replace('/login', undefined, { shallow: true });
     }
-  }, [router.isReady, router.query.registered, router.query.reset, router]);
+  }, [router.isReady, router.query.reset, router]);
 
   useEffect(() => {
     if (!banner) return;

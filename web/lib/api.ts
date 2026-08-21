@@ -1,4 +1,4 @@
-import { User, Token, RegisterResult, Chat, Message } from '../types';
+import { User, Token, Chat, Message } from '../types';
 import * as mock from './mockBackend';
 
 // Re-export so the UI can use a single import path for the demo creds.
@@ -39,7 +39,7 @@ if (typeof window !== 'undefined' && USE_MOCK) {
 export const register = async (
   email: string,
   password: string
-): Promise<RegisterResult> => {
+): Promise<Token> => {
   if (USE_MOCK) return mock.mockRegister(email, password);
   const res = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
@@ -52,48 +52,9 @@ export const register = async (
     const error = await res.json();
     throw new Error(error.detail || 'Registration failed');
   }
-  // The backend now returns 202 + `MessageResponse` and emails a
-  // verification link. The client UI shows "check your inbox"; the
-  // user is NOT logged in until they click the link and call
-  // /auth/verify-email (which redirects them to /login?registered=1).
-  return { requiresVerification: true, email };
-};
-
-/**
- * Verify a user's email using the token from the verification link.
- * Returns true on success, throws on failure (expired / unknown token).
- */
-export const verifyEmail = async (token: string): Promise<boolean> => {
-  if (USE_MOCK) return true;
-  const res = await fetch(`${API_URL}/auth/verify-email`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.detail || 'Email verification failed');
-  }
-  return true;
-};
-
-/**
- * Ask the backend to email a fresh verification link. Returns true if
- * the request was accepted (the backend always returns 200, even when
- * the address is unknown, so callers should treat errors as opaque).
- */
-export const resendVerification = async (email: string): Promise<boolean> => {
-  if (USE_MOCK) return true;
-  const res = await fetch(`${API_URL}/auth/resend-verification`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.detail || 'Could not resend verification email');
-  }
-  return true;
+  // Email verification is disabled (no SMTP configured) — the backend
+  // creates the account as already-verified, so log straight in.
+  return login(email, password);
 };
 
 /**

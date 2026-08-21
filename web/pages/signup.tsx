@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { UserPlus, ArrowRight, Check, X, Mail, RefreshCw } from 'lucide-react';
-import { register, resendVerification } from '../lib/api';
+import { UserPlus, ArrowRight, Check, X } from 'lucide-react';
+import { register } from '../lib/api';
 import AuthLayout from '../components/AuthLayout';
 import TextField from '../components/TextField';
 
@@ -21,18 +21,8 @@ function getPasswordStrength(pwd: string): { score: number; label: string; color
 }
 
 /**
- * Two-state signup page.
- *
- *   form  →  "check your inbox" (after a successful register)
- *
- * The backend now mints a verification email instead of an immediate
- * access token. Once the user clicks the link, they're routed to
- * /verify-email?token=... which calls /auth/verify-email and bounces
- * them to /login?registered=1.
- *
- * Mock mode (NEXT_PUBLIC_USE_MOCK=true) keeps the old auto-login flow
- * for the demo — the register call returns a Token directly, the page
- * just stores it and pushes to /chat.
+ * Signup page. Email verification is disabled (no SMTP configured) —
+ * register() creates the account and logs the user straight in.
  */
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -40,11 +30,6 @@ export default function Signup() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // After a successful register, swap to the "check your inbox" panel.
-  // The email stays bound so the user can resend without retyping.
-  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
-  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
-  const [resendError, setResendError] = useState('');
   const router = useRouter();
 
   const emailErr = email && !EMAIL_RE.test(email) ? 'Enter a valid email' : '';
@@ -65,113 +50,14 @@ export default function Signup() {
     setError('');
     try {
       const data = await register(email, password);
-      if ('requiresVerification' in data) {
-        // Real backend path: 202 + "check your inbox".
-        setPendingEmail(data.email);
-      } else {
-        // Mock mode: Token returned, sign in immediately.
-        localStorage.setItem('token', data.access_token);
-        router.push('/chat');
-      }
+      localStorage.setItem('token', data.access_token);
+      router.push('/chat');
     } catch (err: any) {
       setError(err?.message || 'Signup failed');
     } finally {
       setLoading(false);
     }
   };
-
-  const handleResend = async () => {
-    if (!pendingEmail) return;
-    setResendStatus('sending');
-    setResendError('');
-    try {
-      await resendVerification(pendingEmail);
-      setResendStatus('sent');
-    } catch (err: any) {
-      setResendStatus('error');
-      setResendError(err?.message || 'Could not resend');
-    }
-  };
-
-  const handleUseDifferentEmail = () => {
-    setPendingEmail(null);
-    setResendStatus('idle');
-    setResendError('');
-  };
-
-  // ---------- "check your inbox" panel ----------
-  if (pendingEmail) {
-    return (
-      <AuthLayout
-        title="Check your inbox"
-        subtitle="We've sent a verification link to your email."
-      >
-        <div className="space-y-5">
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Mail className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">{pendingEmail}</p>
-              <p className="text-xs text-muted-foreground">
-                Link expires in 24 hours.
-              </p>
-            </div>
-          </div>
-
-          <p className="text-sm text-muted-foreground">
-            Open the link in the email to finish setting up your account.
-            You can close this tab and come back anytime — the link will
-            still work until it expires.
-          </p>
-
-          {resendStatus === 'sent' && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-700 dark:text-emerald-300 animate-fade-in">
-              A fresh link is on its way.
-            </div>
-          )}
-          {resendStatus === 'error' && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive animate-fade-in">
-              {resendError}
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={resendStatus === 'sending' || resendStatus === 'sent'}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-all hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {resendStatus === 'sending' ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
-                  Sending…
-                </>
-              ) : resendStatus === 'sent' ? (
-                <>
-                  <Check className="h-4 w-4" />
-                  Link sent
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  Resend verification email
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={handleUseDifferentEmail}
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Use a different email
-            </button>
-          </div>
-        </div>
-      </AuthLayout>
-    );
-  }
 
   // ---------- signup form ----------
   return (
