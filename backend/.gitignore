@@ -1,3 +1,4 @@
 .vercel
 .venv/
 .secret-key
+.env*.local

@@ -237,9 +237,9 @@ if ($p.ExitCode -ne 0 -and ($stderr -match 'already exists' -or $stdout -match '
     $psi2.RedirectStandardError  = $true
     $psi2.UseShellExecute = $false
     $psi2.CreateNoWindow = $true
-    $psi2.StandardInputEncoding  = [System.Text.Encoding]::UTF8
-    $psi2.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $psi2.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
+    # Note: StandardInputEncoding is not settable on Windows PowerShell 5.1
+    # ProcessStartInfo (only on pwsh 7+). Omit it -- default UTF-8 stdin is
+    # fine for the plain URL string we write below.
     $psi2.WorkingDirectory = $WebDir
     $p2 = [System.Diagnostics.Process]::Start($psi2)
     $p2.StandardInput.WriteLine($envValue)

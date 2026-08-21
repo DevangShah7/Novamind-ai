@@ -32,8 +32,8 @@ $StateFile      = Join-Path $BackendDir 'tunnel-state.json'
 $TunnelLog      = Join-Path $BackendDir 'tunnel-watchdog-instance.log'
 
 $BackendUrl       = 'http://127.0.0.1:8000'
-$ProbeEverySec    = 30
-$FailureThreshold = 3          # 3 fails * 30s = 90s before we restart
+$ProbeEverySec    = 10
+$FailureThreshold = 6          # 6 fails * 10s = 60s before we restart
 $RedeployCooldown = 300        # Don't redeploy more than once per 5 min
 
 # ---- Logging ----------------------------------------------------------------
@@ -92,6 +92,86 @@ function Test-BackendAlive {
     } catch {
         return $false
     }
+}
+
+function Test-LocalBackendAlive {
+    # Probe the FastAPI on 127.0.0.1:8000 directly. Used to distinguish
+    # 'tunnel dead, backend alive' from 'backend dead, tunnel alive'.
+    # Returns $true / $false (never throws).
+    try {
+        $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 3 -UseBasicParsing
+        return ($r.StatusCode -eq 200 -and $r.Content -match '"db":"ok"')
+    } catch {
+        return $false
+    }
+}
+
+function Start-Backend {
+    # Mirror deploy-now.ps1's uvicorn-launch. Idempotent: if uvicorn is
+    # already running, this is a no-op.
+    $venvPy = Join-Path $BackendDir '.venv\Scripts\python.exe'
+    if (-not (Test-Path $venvPy)) {
+        Write-Log "venv python missing at $venvPy -- run scripts\deploy-now.ps1 once to create it" 'ERROR'
+        return $false
+    }
+
+    # If something is already listening on 8000, leave it alone.
+    if (Test-LocalBackendAlive) {
+        Write-Log "Backend already healthy on 127.0.0.1:8000 -- not restarting"
+        return $true
+    }
+
+    # Kill any orphaned python.exe bound to 8000 (taskkill tolerates no-match).
+    $saveEAP = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    & taskkill.exe /F /T /IM python.exe 2>&1 | Out-Null
+    $ErrorActionPreference = $saveEAP
+    Start-Sleep -Seconds 1
+
+    # Set the env vars the backend expects (config.py requires SECRET_KEY).
+    $env:PYTHONUNBUFFERED     = '1'
+    $env:PYTHONIOENCODING     = 'utf-8'
+    $env:ALLOW_DEV_SECRET_KEY = '1'
+    $env:RUN_DB_MIGRATIONS    = '1'
+    $dotenvPath = Join-Path $BackendDir '.env'
+    if (Test-Path $dotenvPath) {
+        Get-Content $dotenvPath | ForEach-Object {
+            $line = $_.Trim()
+            if (-not $line -or $line.StartsWith('#')) { return }
+            $eq = $line.IndexOf('=')
+            if ($eq -lt 1) { return }
+            $k = $line.Substring(0, $eq).Trim()
+            $v = $line.Substring($eq + 1).Trim()
+            if ($k -in @('SECRET_KEY','ALLOW_DEV_SECRET_KEY','RUN_DB_MIGRATIONS')) { return }
+            Set-Item -Path "Env:$k" -Value $v
+        }
+    }
+    $SecretKeyFile = Join-Path $BackendDir '.secret-key'
+    if (Test-Path $SecretKeyFile) {
+        $env:SECRET_KEY = (Get-Content $SecretKeyFile -Raw).Trim()
+    } else {
+        $env:SECRET_KEY = (& $venvPy -c "import secrets; print(secrets.token_urlsafe(64))")
+        Set-Content -Path $SecretKeyFile -Value $env:SECRET_KEY -NoNewline
+    }
+
+    $uvicornLog = Join-Path $BackendDir 'uvicorn.log'
+    Start-Process -FilePath 'powershell' `
+        -ArgumentList @(
+            '-ExecutionPolicy','Bypass','-NoProfile',
+            '-Command', "cd '$BackendDir'; & '$venvPy' -m uvicorn app.main:app --host 0.0.0.0 --port 8000 2>&1 | Tee-Object -FilePath '$uvicornLog'"
+        ) `
+        -WindowStyle Hidden | Out-Null
+
+    Write-Log "Spawned uvicorn -- waiting for /health"
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        if (Test-LocalBackendAlive) {
+            Write-Log "Backend healthy after uvicorn spawn"
+            return $true
+        }
+    }
+    Write-Log "Backend did NOT come up within 30s -- check backend\uvicorn.log" 'ERROR'
+    return $false
 }
 
 function Save-State {
@@ -458,6 +538,18 @@ while ($true) {
         Write-Log "Probe failed ($failCount / $FailureThreshold) for $url" 'WARN'
         if ($failCount -ge $FailureThreshold) {
             $failCount = 0
+            # Distinguish: was the backend dead, or just the tunnel?
+            $backendOk = Test-LocalBackendAlive
+            if (-not $backendOk) {
+                Write-Log "Local backend (127.0.0.1:8000) is DOWN -- restarting uvicorn first"
+                Start-Backend | Out-Null
+                # Give uvicorn a moment to come up before probing again.
+                Start-Sleep -Seconds 3
+                if (Test-LocalBackendAlive) {
+                    Write-Log "Backend recovered; looping without restarting the tunnel"
+                    continue
+                }
+            }
             Write-Log "Tunnel declared dead -- restarting"
             $currentUrl = Start-NewTunnel
             if ($currentUrl) {

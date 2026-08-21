@@ -30,12 +30,16 @@ EXPOSE 8000
 
 # Healthcheck hits the app's own /health route. The container is "healthy"
 # only when uvicorn is accepting traffic AND the DB round-trip succeeds —
-# exactly the signal a load balancer needs.
+# exactly the signal a load balancer needs. Uses $PORT so this still works
+# on hosts (Render, etc.) that inject a dynamic port.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request,sys; \
-        sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+    CMD python -c "import os,urllib.request,sys; \
+        port = os.environ.get('PORT', '8000'); \
+        sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=3).status == 200 else 1)"
 
 # Single worker by default — SQLite + uvicorn --workers >1 don't share state.
 # Set UVICORN_WORKERS in compose for Postgres-backed multi-worker setups.
+# $PORT defaults to 8000 (matches EXPOSE / fly.toml / docker-compose) but
+# honors a host-injected port (Render, Heroku-style platforms) when set.
 ENV UVICORN_WORKERS=1
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS}"]

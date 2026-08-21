@@ -1,0 +1,43 @@
+# Render Blueprint for the NovaMind FastAPI backend.
+#
+# Deploys the existing Dockerfile (python:3.11-slim) as a free web
+# service. Free tier spins the instance down after ~15 min idle and
+# wakes it on the next request (a few seconds of cold-start latency) --
+# no card required, no PC dependency.
+#
+# Deploy with:
+#   render blueprint launch
+# or via the dashboard: New -> Blueprint -> point at this repo,
+# root directory `backend`.
+#
+# Required secrets (set these in the Render dashboard after the first
+# launch -- render.yaml intentionally does NOT hardcode secret values):
+#   DATABASE_URL   - Neon Postgres connection string
+#   SECRET_KEY     - random string, `python -c "import secrets;print(secrets.token_urlsafe(64))"`
+
+services:
+  - type: web
+    name: novamind-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: RUN_DB_MIGRATIONS
+        value: "1"
+      - key: ALLOW_VERCEL_PREVIEWS
+        value: "1"
+      - key: UVICORN_WORKERS
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: PUBLIC_SITE_URL
+        sync: false

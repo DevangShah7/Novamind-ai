@@ -97,7 +97,7 @@ export default function Login() {
     const which = router.query.demo;
     if (which !== 'demo' && which !== 'devang') return;
     const creds = which === 'demo'
-      ? { email: 'demo@novamind.ai', password: 'demo12345' }
+      ? { email: 'admin@novamind.ai', password: 'admin123' }
       : { email: 'devang@novamind.ai', password: 'NovaMind2026!' };
     setEmail(creds.email);
     setPassword(creds.password);
@@ -135,8 +135,15 @@ export default function Login() {
         <button
           type="button"
           onClick={() => {
-            setEmail('demo@novamind.ai');
-            setPassword('demo12345');
+            // Auto-fill the seeded admin credentials and submit. The
+            // backend's _bootstrap_database() seeds `admin@novamind.ai`
+            // with password `admin123` only when the users table is
+            // empty; existing deploys that already have rows are not
+            // reseeded, so any other demo creds baked into the form
+            // would silently 401. Use the seeded admin to keep the
+            // demo helper working regardless of DB state.
+            setEmail('admin@novamind.ai');
+            setPassword('admin123');
             // Submit on the next tick so React state has propagated.
             setTimeout(() => {
               try {
@@ -157,7 +164,7 @@ export default function Login() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">Use demo credentials</p>
             <p className="text-xs text-muted-foreground truncate">
-              demo@novamind.ai / demo12345
+              admin@novamind.ai / admin123
             </p>
           </div>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
