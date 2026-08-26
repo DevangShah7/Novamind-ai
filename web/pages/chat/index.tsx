@@ -7,6 +7,7 @@ import { useAuth } from '../../lib/auth';
 import { Sparkles, MessageSquarePlus, Wand2, Code2, BookOpen, Lightbulb, ArrowRight, Loader2 } from 'lucide-react';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { toast } from '../../components/ui/Toaster';
+import Aurora from '../../components/ui/Aurora';
 
 export const getServerSideProps = async () => ({ props: {} });
 
@@ -92,21 +93,21 @@ export default function ChatListPage() {
             Try the default admin: <code className="rounded bg-amber-500/20 px-1.5 py-0.5">admin@novamind.ai</code> / <code className="rounded bg-amber-500/20 px-1.5 py-0.5">admin123</code>.
           </div>
         ) : (
-          <div className="mb-6 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-4 py-2 text-xs text-indigo-700 dark:text-indigo-300 animate-fade-in flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-indigo-500" />
+          <div className="glass-card mb-6 rounded-xl px-4 py-2 text-xs text-primary animate-rise-in flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-primary" />
             Powered by NovaMind.
           </div>
         )}
 
         {/* Hero "new chat" panel */}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-10">
-          <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full gradient-bg opacity-10 blur-3xl" />
+        <div className="glass-strong relative overflow-hidden rounded-3xl p-6 sm:p-10">
+          <Aurora variant="subtle" />
           <div className="relative">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
               <Sparkles className="h-4 w-4" />
               Start a new conversation
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               What can I help you with today?
             </h1>
             <p className="mt-2 text-muted-foreground">
@@ -125,12 +126,12 @@ export default function ChatListPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Ask NovaMind anything…"
-                className="flex-1 rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
+                className="flex-1 rounded-xl border border-input bg-background/80 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <button
                 type="submit"
                 disabled={loading || !title.trim()}
-                className="group inline-flex items-center justify-center gap-2 rounded-lg gradient-bg px-5 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+                className="group inline-flex items-center justify-center gap-2 rounded-xl gradient-bg px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
                 <MessageSquarePlus className="h-4 w-4" />
                 {loading ? 'Starting…' : 'Start chat'}
@@ -146,7 +147,7 @@ export default function ChatListPage() {
                   type="button"
                   onClick={() => handleCreateChat(text)}
                   disabled={loading}
-                  className="group flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-left text-sm transition-colors hover:border-primary/40 hover:bg-muted"
+                  className="group flex items-center gap-3 rounded-xl glass-card px-3 py-2.5 text-left text-sm transition-all hover:border-primary/40 hover:-translate-y-0.5"
                 >
                   <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20">
                     <Icon className="h-4 w-4" />

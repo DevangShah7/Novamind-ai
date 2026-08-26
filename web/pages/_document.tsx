@@ -31,7 +31,9 @@ export default class MyDocument extends Document {
         <Head>
           <link rel="manifest" href="/manifest.json" />
           <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-          <meta name="theme-color" content="#4f46e5" />
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+          <meta name="theme-color" content="#7c5cff" />
           <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         </Head>
         <body>

@@ -4,7 +4,6 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { SessionProvider } from '../lib/auth';
 import { ThemeProvider } from '../lib/theme';
 import AdminLayout from '../components/layout/AdminLayout';
-import ThemeToggle from '../components/ThemeToggle';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { Toaster } from '../components/ui/Toaster';
 import { TooltipProvider } from '../components/ui/Tooltip';
@@ -50,15 +49,8 @@ function AppRoot(props: any) {
 
   return (
     <ErrorBoundary>
-      <div className="flex min-h-screen flex-col">
-        <div className="flex-1">{content}</div>
-        <div className="fixed bottom-4 right-4 z-50">
-          <ThemeToggle />
-        </div>
-        <footer className="text-center py-4 text-sm text-muted-foreground w-full">
-          Developed By Devang Shah
-        </footer>
-      </div>
+      <div className="grain-overlay" aria-hidden="true" />
+      {content}
     </ErrorBoundary>
   );
 }

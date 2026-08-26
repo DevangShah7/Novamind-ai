@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { Brain, Zap, ShieldCheck, Sparkles } from 'lucide-react';
+import Aurora from './ui/Aurora';
 
 interface AuthLayoutProps {
   title: string;
@@ -34,72 +35,59 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="grid min-h-screen md:grid-cols-2">
-        {/* Marketing panel — gradient bg, brand, feature bullets. */}
-        <aside className="relative hidden overflow-hidden md:flex md:flex-col md:justify-between gradient-bg p-10 lg:p-16 text-white">
-          {/* Decorative animated blobs */}
-          <div className="pointer-events-none absolute inset-0">
-            <div
-              className="absolute -left-20 top-20 h-72 w-72 rounded-full bg-white/20 blur-3xl animate-blob"
-              style={{ animationDelay: '0s' }}
-            />
-            <div
-              className="absolute right-0 top-1/2 h-80 w-80 rounded-full bg-pink-300/20 blur-3xl animate-blob"
-              style={{ animationDelay: '4s' }}
-            />
-            <div
-              className="absolute bottom-10 left-1/3 h-64 w-64 rounded-full bg-indigo-300/20 blur-3xl animate-blob"
-              style={{ animationDelay: '8s' }}
-            />
-          </div>
+        {/* Marketing panel — ambient aurora, glass feature cards. */}
+        <aside className="relative hidden overflow-hidden md:flex md:flex-col md:justify-between bg-background p-10 lg:p-16">
+          <Aurora />
 
           <div className="relative z-10">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-md">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl gradient-bg text-white shadow-xl shadow-primary/30">
                 <Brain className="h-7 w-7" />
               </div>
-              <span className="text-2xl font-bold tracking-tight">NovaMind AI</span>
+              <span className="font-display text-2xl font-bold tracking-tight text-foreground">NovaMind AI</span>
             </div>
-            <p className="mt-2 text-sm text-white/80">Your AI operating system.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Your AI operating system.</p>
           </div>
 
           <div className="relative z-10 space-y-6">
-            <h2 className="text-3xl font-bold leading-tight lg:text-4xl">
+            <h2 className="font-display text-3xl font-bold leading-tight text-foreground lg:text-4xl">
               Think faster. Build smarter.<br />
-              <span className="text-white/90">Ship without limits.</span>
+              <span className="gradient-text">Ship without limits.</span>
             </h2>
-            <ul className="space-y-4">
+            <ul className="space-y-3">
               {FEATURES.map(({ icon: Icon, title, body }) => (
-                <li key={title} className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white/20 backdrop-blur-md">
+                <li key={title} className="glass-card flex items-start gap-3 rounded-2xl p-3.5">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg gradient-bg text-white">
                     <Icon className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="font-semibold">{title}</p>
-                    <p className="text-sm text-white/85">{body}</p>
+                    <p className="font-semibold text-foreground">{title}</p>
+                    <p className="text-sm text-muted-foreground">{body}</p>
                   </div>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="relative z-10 text-sm text-white/70">
+          <div className="relative z-10 text-sm text-muted-foreground">
             © {new Date().getFullYear()} NovaMind AI
           </div>
         </aside>
 
         {/* Form panel */}
-        <main className="flex items-center justify-center p-6 sm:p-10">
-          <div className="w-full max-w-md">
+        <main className="relative flex items-center justify-center overflow-hidden p-6 sm:p-10">
+          <Aurora variant="subtle" />
+          <div className="glass-strong relative z-10 w-full max-w-md rounded-3xl p-8 sm:p-10">
             {/* Mobile-only logo strip */}
             <div className="mb-8 flex items-center gap-3 md:hidden">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-bg text-white">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-bg text-white shadow-lg shadow-primary/30">
                 <Brain className="h-6 w-6" />
               </div>
-              <span className="text-xl font-bold tracking-tight">NovaMind AI</span>
+              <span className="font-display text-xl font-bold tracking-tight">NovaMind AI</span>
             </div>
 
-            <div className="animate-fade-in">
-              <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+            <div className="animate-rise-in">
+              <h1 className="font-display text-3xl font-bold tracking-tight">{title}</h1>
               <p className="mt-2 text-muted-foreground">{subtitle}</p>
             </div>
 

@@ -44,11 +44,11 @@ export default function SidebarChatList() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border p-3">
+      <div className="border-b border-border/60 p-3">
         <button
           type="button"
           onClick={handleNewChat}
-          className="flex w-full items-center justify-center gap-2 rounded-lg gradient-bg px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl gradient-bg px-3 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/20 transition-all hover:shadow-xl hover:shadow-primary/30 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]"
         >
           <MessageSquarePlus className="h-4 w-4" />
           New chat
@@ -72,10 +72,10 @@ export default function SidebarChatList() {
                 <li key={chat.id} className="group relative">
                   <Link
                     href={`/chat/${chat.id}`}
-                    className={`block rounded-lg px-3 py-2 text-sm transition-colors ${
+                    className={`block rounded-xl px-3 py-2 text-sm transition-all ${
                       isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-foreground hover:bg-muted'
+                        ? 'glass-card font-medium text-primary'
+                        : 'text-foreground hover:bg-muted/70'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">

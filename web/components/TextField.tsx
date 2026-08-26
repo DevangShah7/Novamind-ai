@@ -41,7 +41,7 @@ const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextFiel
           aria-invalid={!!error}
           aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
           className={[
-            'peer block w-full rounded-lg border bg-card px-3.5 pt-5 pb-2 text-sm text-foreground',
+            'peer block w-full rounded-xl border bg-card/80 px-3.5 pt-5 pb-2 text-sm text-foreground',
             'placeholder-transparent transition-colors',
             'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0',
             error

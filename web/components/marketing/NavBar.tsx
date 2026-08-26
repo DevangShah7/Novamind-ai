@@ -27,14 +27,14 @@ export default function NavBar({ variant = 'marketing' }: NavBarProps) {
   const isAuthed = typeof window !== 'undefined' && !!window.localStorage.getItem('token');
 
   return (
-    <header className="sticky top-0 z-30 w-full border-b border-border/60 bg-background/80 backdrop-blur-md">
+    <header className="glass sticky top-0 z-30 w-full border-x-0 border-t-0">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href="/" className="group flex items-center gap-2.5">
           <span className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-bg text-white shadow-lg shadow-primary/25 transition-transform group-hover:scale-105 group-hover:rotate-3">
               <Brain className="h-5 w-5" />
             </div>
-            <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
+            <span className="font-display text-lg font-bold tracking-tight">NovaMind AI</span>
           </span>
         </Link>
 

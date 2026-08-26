@@ -80,16 +80,16 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       {/* Top bar */}
-      <header className="flex-shrink-0 border-b border-border bg-card/80 backdrop-blur-md">
+      <header className="glass relative z-20 flex-shrink-0 border-x-0 border-t-0">
         <div className="flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
           {/* Next.js 12 <Link> requires exactly one child. */}
           <Link href="/chat" className="group">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-bg text-white shadow-sm">
+              <div className="relative flex h-9 w-9 items-center justify-center rounded-xl gradient-bg text-white shadow-lg shadow-primary/30 transition-transform group-hover:scale-105 group-hover:rotate-3">
                 <Brain className="h-5 w-5" />
               </div>
-              <span className="text-lg font-bold tracking-tight">NovaMind AI</span>
-              <span className="hidden rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary sm:inline-flex">
+              <span className="font-display text-lg font-bold tracking-tight">NovaMind AI</span>
+              <span className="hidden rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent sm:inline-flex">
                 <Sparkles className="mr-1 inline h-3 w-3" /> Beta
               </span>
             </div>
@@ -100,7 +100,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
             <button
               type="button"
               onClick={() => router.push('/chat')}
-              className="hidden items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted sm:flex"
+              className="hidden items-center gap-1.5 rounded-xl glass-card px-3 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:-translate-y-0.5 sm:flex"
             >
               <MessageSquarePlus className="h-4 w-4" />
               New chat
@@ -109,7 +109,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
               type="button"
               onClick={() => router.push('/developer')}
               title="Developer Portal"
-              className="hidden items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted sm:flex"
+              className="hidden items-center gap-1.5 rounded-xl glass-card px-3 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:-translate-y-0.5 sm:flex"
             >
               <Key className="h-4 w-4" />
               API
@@ -122,7 +122,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                 <button
                   type="button"
                   onClick={() => setMenuOpen((o) => !o)}
-                  className="flex items-center gap-2 rounded-lg border border-input bg-card px-2 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+                  className="flex items-center gap-2 rounded-xl glass-card px-2 py-1.5 text-sm font-medium transition-all hover:border-primary/40"
                 >
                   <div className="flex h-7 w-7 items-center justify-center rounded-full gradient-bg text-xs font-bold text-white">
                     {getInitials(user.full_name, user.email)}
@@ -130,11 +130,11 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                   <span className="hidden sm:inline max-w-[120px] truncate text-foreground">
                     {user.full_name || user.username || user.email}
                   </span>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-lg border border-border bg-card shadow-lg animate-fade-in z-50">
-                    <div className="border-b border-border px-4 py-3">
+                  <div className="glass-strong absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl animate-rise-in z-50">
+                    <div className="border-b border-border/60 px-4 py-3">
                       <p className="text-sm font-semibold text-foreground truncate">
                         {user.full_name || user.username || 'User'}
                       </p>
@@ -143,7 +143,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     <button
                       type="button"
                       onClick={() => { setMenuOpen(false); router.push('/developer'); }}
-                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-primary/10"
                     >
                       <Key className="h-4 w-4" />
                       Developer Portal
@@ -151,7 +151,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     <button
                       type="button"
                       onClick={() => { setMenuOpen(false); router.push('/billing'); }}
-                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-primary/10"
                     >
                       <CreditCard className="h-4 w-4" />
                       Billing &amp; plan
@@ -159,7 +159,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     <button
                       type="button"
                       onClick={() => { setMenuOpen(false); router.push('/docs'); }}
-                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-primary/10"
                     >
                       <Brain className="h-4 w-4" />
                       API Documentation
@@ -167,7 +167,7 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="flex w-full items-center gap-2 border-t border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2 border-t border-border/60 px-4 py-2.5 text-sm text-destructive transition-colors hover:bg-destructive/10"
                     >
                       <LogOut className="h-4 w-4" />
                       Log out
@@ -182,11 +182,11 @@ export default function AppShell({ children, sidebar }: AppShellProps) {
 
       <div className="flex flex-1 overflow-hidden">
         {sidebar && (
-          <aside className="hidden w-72 flex-shrink-0 border-r border-border bg-card/50 md:block overflow-y-auto">
+          <aside className="hidden w-72 flex-shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-md md:block overflow-y-auto">
             {sidebar}
           </aside>
         )}
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="relative flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

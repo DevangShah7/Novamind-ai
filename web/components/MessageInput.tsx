@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, Mic, Send, Paperclip, X, Loader2, ImageIcon, Sparkles, Presentation, FileText, Code2 } from 'lucide-react';
-import { speechToText } from '../lib/voice';
+import { useVoiceInput } from '../lib/useVoice';
+import VoiceOrb from './VoiceOrb';
 
 interface MessageInputProps {
   onSend: (content: string) => Promise<void>;
@@ -85,8 +86,16 @@ export default function MessageInput({
   const [codeLanguage, setCodeLanguage] = useState<(typeof CODE_LANGUAGES)[number]['id']>('python');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [speechRecognition, setSpeechRecognition] = useState<any>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const voice = useVoiceInput((finalText) => {
+    // Speak → auto-send, same as Google Assistant / voice-first UX.
+    // The orb already showed the live transcript, so closing it here
+    // and submitting directly is less jarring than dumping text into
+    // the textarea and making the user hit Send.
+    setVoiceOpen(false);
+    submitTextRef.current(finalText);
+  });
+  const submitTextRef = useRef<(text: string) => Promise<void>>(async () => {});
   // "Looks hung" — set when `loading` stays true for >HANG_THRESHOLD ms.
   // The mock backend replies within ~1s; the FastAPI backend replies within
   // a few seconds. If neither fires, this banner tells the user the request
@@ -137,58 +146,63 @@ export default function MessageInput({
 
   const canSend = (content.trim().length > 0 || files.length > 0) && !loading;
 
+  // Core send logic, factored out so both the form submit and the voice
+  // auto-send path (which has text but never touched the textarea state)
+  // can share it.
+  const submitText = async (text: string) => {
+    if (!text.trim()) return;
+    // Each non-text mode stashes its options on `window` as a
+    // side-channel so the chat page can read them when it calls
+    // `sendMessage` without us having to lift the chip state up.
+    // The text path leaves both unset; the chat page treats that
+    // as "default text message".
+    const w = window as any;
+    w.__pendingImageOpts = null;
+    w.__pendingFileOpts = null;
+
+    if (mode === 'image') {
+      w.__pendingImageOpts = {
+        messageType: 'image' as const,
+        metaData: {
+          style: imageStyle,
+          width: imageSize,
+          height: imageSize,
+        },
+      };
+    } else if (mode === 'ppt') {
+      const opts: FileOpts = {
+        messageType: 'file',
+        metaData: { kind: 'pptx', theme: pptTheme, slide_count: pptSlideCount },
+      };
+      w.__pendingFileOpts = opts;
+    } else if (mode === 'docx') {
+      const opts: FileOpts = {
+        messageType: 'file',
+        metaData: { kind: 'docx', style: docxStyle },
+      };
+      w.__pendingFileOpts = opts;
+    } else if (mode === 'code') {
+      const opts: FileOpts = {
+        messageType: 'code',
+        metaData: { language: codeLanguage },
+      };
+      w.__pendingFileOpts = opts;
+    }
+
+    await onSend(text);
+    setContent('');
+    setFiles([]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSend) return;
-    if (content.trim()) {
-      // Each non-text mode stashes its options on `window` as a
-      // side-channel so the chat page can read them when it calls
-      // `sendMessage` without us having to lift the chip state up.
-      // The text path leaves both unset; the chat page treats that
-      // as "default text message".
-      const w = window as any;
-      w.__pendingImageOpts = null;
-      w.__pendingFileOpts = null;
-
-      if (mode === 'image') {
-        w.__pendingImageOpts = {
-          messageType: 'image' as const,
-          metaData: {
-            style: imageStyle,
-            width: imageSize,
-            height: imageSize,
-          },
-        };
-      } else if (mode === 'ppt') {
-        const opts: FileOpts = {
-          messageType: 'file',
-          metaData: { kind: 'pptx', theme: pptTheme, slide_count: pptSlideCount },
-        };
-        w.__pendingFileOpts = opts;
-      } else if (mode === 'docx') {
-        const opts: FileOpts = {
-          messageType: 'file',
-          metaData: { kind: 'docx', style: docxStyle },
-        };
-        w.__pendingFileOpts = opts;
-      } else if (mode === 'code') {
-        const opts: FileOpts = {
-          messageType: 'code',
-          metaData: { language: codeLanguage },
-        };
-        w.__pendingFileOpts = opts;
-      }
-
-      try {
-        await onSend(content);
-        setContent('');
-        setFiles([]);
-      } finally {
-        // Don't clear opts until the parent has consumed them. They'll
-        // be overwritten on the next send anyway.
-      }
-    }
+    await submitText(content);
   };
+
+  useEffect(() => {
+    submitTextRef.current = submitText;
+  });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,36 +231,14 @@ export default function MessageInput({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [content]);
 
-  // Initialize speech recognition
-  useEffect(() => {
-    let rec: any = null;
-    if (typeof window !== 'undefined') {
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SR) rec = new SR();
-    }
-    if (rec) {
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'en-US';
-      rec.onresult = (event: any) => {
-        setContent(event.results[0][0].transcript);
-        setIsListening(false);
-      };
-      rec.onerror = () => setIsListening(false);
-      rec.onend = () => setIsListening(false);
-      setSpeechRecognition(rec);
-    }
-  }, []);
+  const handleOpenVoice = () => {
+    setVoiceOpen(true);
+    voice.start();
+  };
 
-  const handleSpeechToText = async () => {
-    if (!speechRecognition || isListening) return;
-    try {
-      setIsListening(true);
-      speechRecognition.start();
-    } catch (error) {
-      console.error('Speech recognition error:', error);
-      setIsListening(false);
-    }
+  const handleCloseVoice = () => {
+    voice.stop();
+    setVoiceOpen(false);
   };
 
   const isImageMode = mode === 'image';
@@ -258,8 +250,8 @@ export default function MessageInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className={`relative rounded-2xl border bg-card shadow-sm transition-all ${
-        isFocused ? 'border-primary ring-2 ring-ring' : 'border-border'
+      className={`glass relative rounded-2xl transition-all ${
+        isFocused ? 'ring-2 ring-ring' : ''
       }`}
     >
       {/* Image-mode option chips. Shown above the input only when the
@@ -554,19 +546,17 @@ export default function MessageInput({
           style={{ minHeight: '36px', maxHeight: '200px' }}
         />
 
-        {/* Voice — text mode only. */}
+        {/* Voice — text mode only. Opens the full listening overlay
+            rather than a bare toggle, so the user gets live waveform
+            + transcript feedback instead of guessing whether it heard them. */}
         {!(isImageMode || isFileMode) && (
           <button
             type="button"
-            onClick={handleSpeechToText}
-            disabled={loading || !speechRecognition}
-            aria-label={isListening ? 'Listening…' : 'Voice input'}
-            title={speechRecognition ? 'Voice input' : 'Voice not supported in this browser'}
-            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg transition-colors ${
-              isListening
-                ? 'bg-primary text-white animate-pulse'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            } disabled:opacity-40`}
+            onClick={handleOpenVoice}
+            disabled={loading || !voice.supported}
+            aria-label="Voice input"
+            title={voice.supported ? 'Voice input' : 'Voice not supported in this browser'}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
             <Mic className="h-4 w-4" />
           </button>
@@ -621,6 +611,15 @@ export default function MessageInput({
           )}
         </button>
       </div>
+
+      <VoiceOrb
+        open={voiceOpen}
+        level={voice.level}
+        transcript={voice.transcript}
+        interimTranscript={voice.interimTranscript}
+        error={voice.error}
+        onClose={handleCloseVoice}
+      />
     </form>
   );
 }
