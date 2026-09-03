@@ -21,6 +21,17 @@
 
 $ErrorActionPreference = 'Stop'
 
+# ---- Single-instance guard ------------------------------------------------------
+# Two watchdogs running at once fire overlapping `vercel --prod` deploys, and
+# whichever lands last wins the production alias -- often with an already-stale
+# tunnel URL baked in. That is the "login always errors" symptom. A machine-wide
+# named mutex makes a second copy exit immediately instead.
+$script:__wtMutex = New-Object System.Threading.Mutex($false, 'Global\NovaMindWatchTunnel')
+if (-not $script:__wtMutex.WaitOne(0)) {
+    Write-Host "Another watch-tunnel.ps1 is already running -- exiting."
+    exit 0
+}
+
 # ---- Config -----------------------------------------------------------------
 
 $RepoRoot       = (Resolve-Path "$PSScriptRoot\..").Path
@@ -32,9 +43,12 @@ $StateFile      = Join-Path $BackendDir 'tunnel-state.json'
 $TunnelLog      = Join-Path $BackendDir 'tunnel-watchdog-instance.log'
 
 $BackendUrl       = 'http://127.0.0.1:8000'
-$ProbeEverySec    = 10
-$FailureThreshold = 6          # 6 fails * 10s = 60s before we restart
-$RedeployCooldown = 300        # Don't redeploy more than once per 5 min
+$ProbeEverySec    = 8
+$FailureThreshold = 3          # 3 fails * 8s = 24s of downtime before we restart
+# Cooldown ONLY throttles re-deploying the *same* URL (pointless churn). A tunnel
+# whose URL has CHANGED always redeploys immediately regardless of this value --
+# see Ensure-Deployed. Otherwise the live site can sit on a dead URL for minutes.
+$RedeploySameUrlCooldown = 180
 
 # ---- Logging ----------------------------------------------------------------
 
@@ -190,11 +204,11 @@ function Get-SecondsSinceRedeploy {
         try {
             return ((Get-Date) - $LastRedeploy).TotalSeconds
         } catch {
-            return $RedeployCooldown + 1
+            return $RedeploySameUrlCooldown + 1
         }
     }
     # Treat null / MinValue as "ages ago" so we always redeploy on first run.
-    return $RedeployCooldown + 1
+    return $RedeploySameUrlCooldown + 1
 }
 
 # ---- Tunnel lifecycle -------------------------------------------------------
@@ -421,6 +435,47 @@ function Redeploy-Vercel {
     }
 }
 
+# Tracks the tunnel URL currently baked into the live Vercel production build.
+# Empty until the first successful deploy this run.
+$script:lastDeployedUrl = ''
+
+function Ensure-Deployed {
+    <#
+      The single place that decides whether to redeploy Vercel.
+
+        * URL changed since the last successful deploy  -> redeploy NOW,
+          cooldown does not apply (the live site is broken until we do).
+        * URL unchanged                                 -> redeploy at most
+          once per $RedeploySameUrlCooldown seconds (avoids pointless churn
+          if a probe flaps but the URL is actually fine).
+
+      On a successful deploy, records the URL and timestamp. Returns $true
+      if the live build now matches $Url (either just deployed, or already
+      current), $false if a needed deploy failed.
+    #>
+    param([string]$Url)
+
+    if (-not $Url) { return $false }
+
+    if ($Url -eq $script:lastDeployedUrl) {
+        $since = Get-SecondsSinceRedeploy -LastRedeploy $script:lastRedeploy
+        if ($since -lt $RedeploySameUrlCooldown) {
+            Write-Log "Live build already on $Url -- skipping redeploy ($([int]($RedeploySameUrlCooldown - $since))s cooldown left)"
+            return $true
+        }
+    } else {
+        Write-Log "Tunnel URL changed ($($script:lastDeployedUrl) -> $Url) -- redeploying immediately, cooldown bypassed"
+    }
+
+    if (Redeploy-Vercel -Url $Url) {
+        $script:lastDeployedUrl = $Url
+        $script:lastRedeploy    = Get-Date
+        return $true
+    }
+    Write-Log "Redeploy for $Url failed -- will retry on the next loop" 'ERROR'
+    return $false
+}
+
 # ---- Main loop --------------------------------------------------------------
 
 # Boot: ensure the local backend is up. If not, the script is pointless.
@@ -432,6 +487,21 @@ try {
     Write-Log "Local backend not responding at $BackendUrl. Start it first (uvicorn or docker compose up -d backend)." 'ERROR'
     Save-State -Url '' -Status 'backend_down'
     exit 1
+}
+
+# Boot: reap orphaned `vercel deploy` processes from a previous watchdog that
+# was killed without cleaning up. Left running, they can finish late and slam a
+# stale build onto the production alias.
+try {
+    $orphans = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match 'vercel[\\/].*(deploy|vc\.js)' }
+    foreach ($o in $orphans) {
+        Write-Log "Killing orphaned vercel process PID $($o.ProcessId)" 'WARN'
+        & taskkill.exe /F /T /PID $o.ProcessId 2>&1 | Out-Null
+    }
+    $global:LASTEXITCODE = 0
+} catch {
+    Write-Log "Orphan-vercel sweep skipped: $_" 'WARN'
 }
 
 # Boot: start a tunnel. If one is already running and healthy, keep it.
@@ -476,24 +546,19 @@ if (-not $currentUrl) {
 if ($currentUrl) {
     try {
         Update-LocalEnv -Url $currentUrl
-        # If the URL changed from what Vercel last had, redeploy web now.
-        # On the very first boot there's nothing deployed yet, but Redeploy-Vercel
-        # is idempotent -- the URL either matches (skip via cooldown) or doesn't (redeploy).
-        if ((Get-SecondsSinceRedeploy -LastRedeploy $lastRedeploy) -ge $RedeployCooldown) {
-            if (Redeploy-Vercel -Url $currentUrl) {
-                $lastRedeploy = Get-Date
-            }
-        }
+        # On the very first boot $script:lastDeployedUrl is empty, so this
+        # always redeploys once to guarantee the live build matches the tunnel.
+        Ensure-Deployed -Url $currentUrl | Out-Null
     } catch {
         Write-Log "Boot-time redeploy crashed: $_" 'ERROR'
     }
 }
 
 $failCount = 0
-# NOTE: $lastRedeploy is intentionally left UNDEFINED here. On first reference
-# it will be $null and Get-SecondsSinceRedeploy treats $null as "ages ago" so
-# the first redeploy goes through. Reassigning to $null here would reset any
-# value set during the boot-time redeploy and break the cooldown.
+# NOTE: $script:lastRedeploy is left UNDEFINED here on purpose. On first
+# reference it is $null and Get-SecondsSinceRedeploy treats $null as "ages
+# ago". Ensure-Deployed sets it (and $script:lastDeployedUrl) after a
+# successful deploy; don't reset either here.
 
 # Wrap the entire main loop in try/catch so a transient error (a logging
 # race, a Save-State IO blip, an unreachable tunnel during a probe) logs and
@@ -511,14 +576,7 @@ while ($true) {
                 $currentUrl = Start-NewTunnel
                 if ($currentUrl) {
                     Update-LocalEnv -Url $currentUrl
-                    $secondsSince = Get-SecondsSinceRedeploy -LastRedeploy $lastRedeploy
-                    if ($secondsSince -ge $RedeployCooldown) {
-                        if (Redeploy-Vercel -Url $currentUrl) {
-                            $lastRedeploy = Get-Date
-                        }
-                    } else {
-                        Write-Log "Skipping redeploy -- cooldown $($RedeployCooldown - $secondsSince)s remaining"
-                    }
+                    Ensure-Deployed -Url $currentUrl | Out-Null
                 }
             }
             continue
@@ -554,14 +612,7 @@ while ($true) {
             $currentUrl = Start-NewTunnel
             if ($currentUrl) {
                 Update-LocalEnv -Url $currentUrl
-                $secondsSince = Get-SecondsSinceRedeploy -LastRedeploy $lastRedeploy
-                if ($secondsSince -ge $RedeployCooldown) {
-                    if (Redeploy-Vercel -Url $currentUrl) {
-                        $lastRedeploy = Get-Date
-                    }
-                } else {
-                    Write-Log "Skipping redeploy -- cooldown $($RedeployCooldown - $secondsSince)s remaining"
-                }
+                Ensure-Deployed -Url $currentUrl | Out-Null
             }
         }
     } catch {

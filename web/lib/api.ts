@@ -36,12 +36,53 @@ if (typeof window !== 'undefined' && USE_MOCK) {
   }
 }
 
+/**
+ * fetch() wrapper that retries transient backend unreachability.
+ *
+ * The backend is fronted by a Cloudflare quick-tunnel that flaps for a few
+ * seconds at a time when its edge reconnects. During a blip the browser sees
+ * either a thrown TypeError ("Failed to fetch") or a 502/503/504 from
+ * Cloudflare. Those are almost always gone within a couple of seconds, so we
+ * retry a small number of times with backoff before surfacing an error.
+ *
+ * Auth calls (login/register) are safe to retry: they're idempotent enough
+ * that a duplicate attempt during a blip does no harm (a second identical
+ * login just returns another token; a duplicate register returns 400 which
+ * we treat as a normal error, not a retry trigger).
+ */
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+async function fetchWithRetry(
+  input: string,
+  init: RequestInit,
+  { retries = 2, backoffMs = 1500 }: { retries?: number; backoffMs?: number } = {}
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(input, init);
+      if (RETRYABLE_STATUS.has(res.status) && attempt < retries) {
+        await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      // TypeError === network-level failure (dead host, DNS, CORS-preflight
+      // fail because the tunnel returned a 5xx). Retry those.
+      lastErr = err;
+      if (!(err instanceof TypeError) || attempt === retries) throw err;
+      await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)));
+    }
+  }
+  // Unreachable, but TS wants a return/throw on every path.
+  throw lastErr ?? new Error('Request failed');
+}
+
 export const register = async (
   email: string,
   password: string
 ): Promise<Token> => {
   if (USE_MOCK) return mock.mockRegister(email, password);
-  const res = await fetch(`${API_URL}/auth/register`, {
+  const res = await fetchWithRetry(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -100,7 +141,7 @@ export const login = async (email: string, password: string): Promise<Token> => 
   // FastAPI's OAuth2PasswordRequestForm expects form-urlencoded with a
   // `username` field (the email) and `password`. Sending JSON yields 422.
   const body = new URLSearchParams({ username: email, password });
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await fetchWithRetry(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -264,7 +305,7 @@ export const fetchMe = async (): Promise<User> => {
     return mock.mockGetCurrentUser();
   }
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}/users/me`, {
+  const res = await fetchWithRetry(`${API_URL}/users/me`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
