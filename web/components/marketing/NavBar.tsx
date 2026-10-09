@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Brain, Github } from 'lucide-react';
@@ -23,8 +24,14 @@ interface NavBarProps {
  * gives the same look without the prerender regression.
  */
 export default function NavBar({ variant = 'marketing' }: NavBarProps) {
+  const [mounted, setMounted] = React.useState(false);
   const router = useRouter();
-  const isAuthed = typeof window !== 'undefined' && !!window.localStorage.getItem('token');
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isAuthed = mounted && typeof window !== 'undefined' && !!window.localStorage.getItem('token');
 
   return (
     <header className="glass sticky top-0 z-30 w-full border-x-0 border-t-0">
